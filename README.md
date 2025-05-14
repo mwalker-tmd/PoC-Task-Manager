@@ -1,15 +1,43 @@
-# LangGraph Cloud Example
+# Task Manager PoC with LangGraph
 
-![](static/agent_ui.png)
+A proof of concept task manager built using LangGraph and LangChain.
 
-This is an example agent to deploy with LangGraph Cloud.
+## Getting Started
 
-> [!TIP]
-> If you would rather use `requirements.txt` for managing dependencies in your LangGraph Cloud project, please check out [this repository](https://github.com/langchain-ai/langgraph-example).
+### Prerequisites
 
+- Python 3.9 or higher
+- Poetry for dependency management
+- API keys for:
+  - OpenAI
+  - Anthropic
+  - Tavily
 
-[LangGraph](https://github.com/langchain-ai/langgraph) is a library for building stateful, multi-actor applications with LLMs. The main use cases for LangGraph are conversational agents, and long-running, multi-step LLM applications or any LLM application that would benefit from built-in support for persistent checkpoints, cycles and human-in-the-loop interactions (ie. LLM and human collaboration).
+### Installation
 
-LangGraph shortens the time-to-market for developers using LangGraph, with a one-liner command to start a production-ready HTTP microservice for your LangGraph applications, with built-in persistence. This lets you focus on the logic of your LangGraph graph, and leave the scaling and API design to us. The API is inspired by the OpenAI assistants API, and is designed to fit in alongside your existing services.
+1. Clone the repository
+2. Install dependencies:
+   ```bash
+   poetry install
+   ```
+3. Create a `.env` file with your API keys:
+   ```
+   OPENAI_API_KEY=your_openai_key
+   ANTHROPIC_API_KEY=your_anthropic_key
+   TAVILY_API_KEY=your_tavily_key
+   ```
 
-In order to deploy this agent to LangGraph Cloud you will want to first fork this repo. After that, you can follow the instructions [here](https://langchain-ai.github.io/langgraph/cloud/) to deploy to LangGraph Cloud.
+### Running the Server
+
+To start the LangGraph server and launch LangGraph Studio:
+
+```bash
+langgraph dev
+```
+
+This will:
+1. Start the LangGraph server
+2. Open LangGraph Studio in your default web browser
+3. Allow you to interact with your agent through the Studio interface
+
+The server will be available at http://127.0.0.1:2024
