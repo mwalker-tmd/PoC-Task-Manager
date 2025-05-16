@@ -60,6 +60,16 @@ To use LangGraph Studio with this project:
 
 >Next up will be getting the FastMCP Inspector connecting
 
+## Running the Tests
+
+To run the unit tests and check coverage:
+
+```sh
+pytest --cov
+```
+
+This will run all tests in the `tests/` directory and show a coverage report.
+
 ## Notes
 
 - The OpenAPI docs for your FastAPI endpoints are available at [http://localhost:8000/docs](http://localhost:8000/docs) if you run:
