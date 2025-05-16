@@ -21,4 +21,4 @@ def test_create_item():
 def test_create_task():
     response = client.post("/tasks", params={"task": "Test Task"})
     assert response.status_code == 200
-    assert response.json()["name"] == "Test Task" 
+    assert response.json()["task"] == "Test Task" 

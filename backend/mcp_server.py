@@ -19,8 +19,8 @@ def create_item(name: str):
 
 @app.post("/tasks")
 def create_task(task: str):
-    
-    return {"id": 3, "name": task}
+
+    return {"id": 3, "task": task}
 
 # Create an MCP server from your FastAPI app
 mcp = FastMCP.from_fastapi(app=app)
