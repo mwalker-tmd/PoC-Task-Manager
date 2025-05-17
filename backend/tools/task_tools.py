@@ -1,43 +1,93 @@
 from typing import List, Optional
+from openai import OpenAI
 
+# --- Constants ---
+DEFAULT_MODEL = "gpt-4"
+
+# --- Shared LLM client accessor ---
+_client = OpenAI()
+
+def get_client():
+    return _client
+
+# --- LLM-enabled functions ---
 def extract_task(prompt: str) -> dict:
     """
-    Extract the main task from a user's prompt.
+    Extract the main task from a user's prompt using an LLM.
     """
-    # Simplified stub; will later use LLM to parse
+    client = get_client()
+    response = client.chat.completions.create(
+        model=DEFAULT_MODEL,
+        messages=[
+            {"role": "system", "content": "Extract the main task from the user's input."},
+            {"role": "user", "content": f"What is the primary task in this sentence?\n\n{prompt}"}
+        ]
+    )
+    content = response.choices[0].message.content.strip()
     return {
-        "task": prompt.strip(),  # naive placeholder
-        "context": "User-provided input"
+        "task": content,
+        "context": "LLM-extracted"
     }
 
 def analyze_subtasks(task: str) -> dict:
     """
-    Determine if the task has subtasks, and list them if possible.
+    Break the main task into subtasks and identify any missing info using an LLM.
     """
-    # This would later use LLM logic or few-shot prompt to break down
-    if "presentation" in task.lower():
-        subtasks = [
-            "Define topic",
-            "Create slides",
-            "Practice delivery"
+    client = get_client()
+    prompt = f"""
+    Task: "{task}"
+
+    List any subtasks that make up this task, and specify any missing information needed to complete it.
+    Provide two lists: one of subtasks, one of missing info.
+    """
+    response = client.chat.completions.create(
+        model=DEFAULT_MODEL,
+        messages=[
+            {"role": "system", "content": "You help break down tasks into subtasks and spot missing info."},
+            {"role": "user", "content": prompt}
         ]
-    else:
-        subtasks = []
+    )
+    content = response.choices[0].message.content.strip()
+    lines = content.splitlines()
+    subtasks, missing = [], []
+    current = None
+    for line in lines:
+        if "subtask" in line.lower():
+            current = subtasks
+            continue
+        elif "missing" in line.lower():
+            current = missing
+            continue
+        if current is not None and line.strip():
+            current.append(line.lstrip("- ").strip())
 
     return {
         "has_subtasks": bool(subtasks),
         "subtasks": subtasks,
-        "missing_info": ["topic"] if "presentation" in task.lower() else []
+        "missing_info": missing
     }
 
 def clarify(missing_info: List[str]) -> dict:
     """
-    Prompt the user for missing details.
+    Generate clarification questions for missing task info using an LLM.
     """
-    questions = []
-    for item in missing_info:
-        questions.append(f"Can you clarify the {item}?")
+    client = get_client()
+    if not missing_info:
+        return {"questions": []}
 
+    prompt = f"""
+    A task is missing the following pieces of information: {', '.join(missing_info)}.
+    Write a short clarification question for each.
+    """
+    response = client.chat.completions.create(
+        model=DEFAULT_MODEL,
+        messages=[
+            {"role": "system", "content": "You generate clarification questions for missing task details."},
+            {"role": "user", "content": prompt}
+        ]
+    )
+    content = response.choices[0].message.content.strip()
+    questions = [line.lstrip("- ").strip() for line in content.splitlines() if line.strip()]
     return {
         "questions": questions
     }
@@ -49,5 +99,119 @@ def review(task: str, subtasks: Optional[List[str]] = None) -> dict:
     return {
         "task": task,
         "subtasks": subtasks or [],
-        "message": "Here’s what I’ve extracted. Let me know if you’d like to change anything."
+        "message": "Here's what I've extracted. Let me know if you'd like to change anything."
+    }
+
+def revise_subtasks(user_feedback: str, subtasks: List[str]) -> dict:
+    """
+    Accept user feedback and modify subtasks using an LLM.
+    """
+    client = get_client()
+    prompt = f"""
+    Current subtasks:
+    {chr(10).join(f"- {s}" for s in subtasks)}
+
+    User feedback:
+    "{user_feedback}"
+
+    Please return an updated list of subtasks based on the feedback.
+    Return them as a plain numbered list.
+    """
+    response = client.chat.completions.create(
+        model=DEFAULT_MODEL,
+        messages=[
+            {"role": "system", "content": "You are a helpful assistant that revises task subtasks."},
+            {"role": "user", "content": prompt}
+        ]
+    )
+    content = response.choices[0].message.content.strip()
+    new_subtasks = [line.split(".", 1)[-1].strip(" ") for line in content.splitlines() if line.strip()]
+    return {
+        "subtasks": new_subtasks
+    }
+
+def judge_task(original_prompt: str, final_task: str) -> dict:
+    """
+    Check if the task is a reasonable revision of the user's submission.
+    """
+    client = get_client()
+    prompt = f"""
+    Original task input:
+    "{original_prompt}"
+
+    Extracted main task:
+    "{final_task}"
+
+    Is the main task a reasonable interpretation of the user's submission? Respond with "approved" or "needs revision" only.
+    """
+    response = client.chat.completions.create(
+        model=DEFAULT_MODEL,
+        messages=[
+            {"role": "system", "content": "You are an expert task workflow judge."},
+            {"role": "user", "content": prompt}
+        ]
+    )
+    result = response.choices[0].message.content.strip().lower()
+    return {
+        "status": "approved" if "approved" in result else "needs revision"
+    }
+
+def judge_subtasks(original_prompt: str, final_task: str, subtasks: List[str]) -> dict:
+    """
+    Check if the subtasks are a reasonable decomposition of the original task.
+    """
+    client = get_client()
+    prompt = f"""
+    Original task input:
+    "{original_prompt}"
+
+    Extracted main task:
+    "{final_task}"
+
+    Proposed subtasks:
+    {chr(10).join(f"- {s}" for s in subtasks)}
+
+    Are the subtasks a reasonable breakdown of the task? Respond with "approved" or "needs revision" only.
+    """
+    response = client.chat.completions.create(
+        model=DEFAULT_MODEL,
+        messages=[
+            {"role": "system", "content": "You are an expert task workflow judge."},
+            {"role": "user", "content": prompt}
+        ]
+    )
+    result = response.choices[0].message.content.strip().lower()
+    return {
+        "status": "approved" if "approved" in result else "needs revision"
+    }
+
+def save_task_to_db(task: str, subtasks: Optional[List[str]] = None):
+    subtasks = subtasks or []
+    print(f"[SAVE] Task: {task}\n[SUBTASKS]\n" + chr(10).join(f"- {s}" for s in subtasks))
+    return {
+        "status": "saved"
+    }
+
+
+# The following functions are stubs for the v2 task agent
+def ask_to_subtask(task: str) -> dict:
+    """
+    Ask the user to select a subtask from a list.
+    """
+    return {
+        "decision": "no"
+    }
+def create_clarifying_questions(task: str) -> dict:    
+    """
+    Create clarifying questions for a subtask.
+    """
+    return {
+        "questions": [f"What is the purpose of {subtask}?" for subtask in subtasks]
+    }
+def receive_clarification_feedback(feedback: str, subtask: str) -> dict:
+    """
+    Receive feedback on a clarification question.
+    """
+    return {
+        "feedback": feedback
     }
