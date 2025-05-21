@@ -6,107 +6,108 @@ from typing import Optional, List
 
 from backend.tools.task_tools import (
     extract_task,
-    analyze_subtasks,
     judge_task,
-    judge_subtasks,
-    save_task_to_db,
     ask_to_subtask,
+    generate_subtasks,
+    judge_subtasks,
     create_clarifying_questions,
-    receive_clarification_feedback
+    ask_clarifying_questions,
+    receive_clarification_feedback,
+    create_task
 )
 
+# Define the shared state
 class TaskAgentState(BaseModel):
     input: Optional[str] = None
     task: Optional[str] = None
     subtasks: Optional[List[str]] = None
-    clarification_needed: Optional[List[str]] = None
+    missing_info: Optional[List[str]] = None
+    user_feedback: Optional[str] = None
+    subtask_decision: Optional[str] = None
     clarification_questions: Optional[List[str]] = None
     confirmed: Optional[bool] = False
     task_judgment: Optional[str] = None
     subtask_judgment: Optional[str] = None
-    user_feedback: Optional[str] = None
-    subtask_decision: Optional[str] = None
 
-# Node Definitions
-def extract_task_node(state):
-    result = extract_task(state.input)
-    return {"task": result["task"]}
+# Node definitions
 
-def judge_task_node(state):
-    result = judge_task(state.input, state.task)
-    return {"task_judgment": result["status"]}
+def extract_task_node(state: TaskAgentState) -> TaskAgentState:
+    task_data = extract_task(state.input)
+    state.task = task_data.get("task")
+    return state
 
-def judge_subtasks_node(state):
-    result = judge_subtasks(state.input, state.task, state.subtasks or [])
-    return {"subtask_judgment": result["status"]}
+def judge_task_node(state: TaskAgentState) -> TaskAgentState:
+    decision = judge_task(state.task)
+    state.task_judgment = decision.get("judgment")
+    return state
 
-def ask_to_subtask_node(state):
-    result = ask_to_subtask(state.task)
-    return {"subtask_decision": result["decision"]}
+def ask_to_subtask_node(state: TaskAgentState) -> TaskAgentState:
+    decision = ask_to_subtask(state.task)
+    state.subtask_decision = decision.get("decision")
+    return state
 
-def create_clarifying_questions_node(state):
-    result = create_clarifying_questions(state.task)
-    return {"clarification_questions": result["questions"]}
+def generate_subtasks_node(state: TaskAgentState) -> TaskAgentState:
+    result = generate_subtasks(state.task)
+    state.subtasks = result.get("subtasks")
+    state.missing_info = result.get("missing_info")
+    return state
 
-def ask_clarifying_questions_node(state):
-    return {}  # handled externally / human-in-the-loop
+def judge_subtasks_node(state: TaskAgentState) -> TaskAgentState:
+    result = judge_subtasks(state.task, state.subtasks)
+    state.subtask_judgment = result.get("judgment")
+    return state
 
-def receive_clarification_feedback_node(state):
+def create_clarifying_questions_node(state: TaskAgentState) -> TaskAgentState:
+    result = create_clarifying_questions(state.missing_info)
+    state.clarification_questions = result.get("questions")
+    return state
+
+def ask_clarifying_questions_node(state: TaskAgentState) -> TaskAgentState:
+    return state  # UI interaction stub
+
+def receive_clarification_feedback_node(state: TaskAgentState) -> TaskAgentState:
     result = receive_clarification_feedback(state.clarification_questions)
-    return {"input": result["updated_input"]}
+    state.input = result.get("updated_input")
+    return state
 
-def generate_subtasks_node(state):
-    result = analyze_subtasks(state.task)
-    return {
-        "subtasks": result["subtasks"],
-        "clarification_needed": result["missing_info"]
-    }
+def create_task_node(state: TaskAgentState) -> TaskAgentState:
+    create_task(state.task, state.subtasks)
+    state.confirmed = True
+    return state
 
-def create_task_node(state):
-    result = save_task_to_db(state.task, state.subtasks)
-    return {"confirmed": True}
-
-# Graph Construction
+# Build the graph
 builder = StateGraph(TaskAgentState)
 
 builder.add_node("extract_task", RunnableLambda(extract_task_node))
 builder.add_node("judge_task", RunnableLambda(judge_task_node))
-builder.add_node("judge_subtasks", RunnableLambda(judge_subtasks_node))
 builder.add_node("ask_to_subtask", RunnableLambda(ask_to_subtask_node))
+builder.add_node("generate_subtasks", RunnableLambda(generate_subtasks_node))
+builder.add_node("judge_subtasks", RunnableLambda(judge_subtasks_node))
 builder.add_node("create_clarifying_questions", RunnableLambda(create_clarifying_questions_node))
 builder.add_node("ask_clarifying_questions", RunnableLambda(ask_clarifying_questions_node))
 builder.add_node("receive_clarification_feedback", RunnableLambda(receive_clarification_feedback_node))
-builder.add_node("generate_subtasks", RunnableLambda(generate_subtasks_node))
 builder.add_node("create_task", RunnableLambda(create_task_node))
 
-# Transitions
 builder.set_entry_point("extract_task")
+
 builder.add_edge("extract_task", "judge_task")
-builder.add_conditional_edges("judge_task", lambda s: s.judgment, {
-    "approved": "ask_to_subtask",
-    "needs_revision": "create_clarifying_questions"
+builder.add_conditional_edges("judge_task", lambda s: s.task_judgment, {
+    "pass": "ask_to_subtask",
+    "fail": "create_clarifying_questions"
 })
 builder.add_edge("create_clarifying_questions", "ask_clarifying_questions")
 builder.add_edge("ask_clarifying_questions", "receive_clarification_feedback")
-# After clarification, decide where to go based on whether subtasks exist
-builder.add_conditional_edges(
-    "receive_clarification_feedback",
-    lambda s: "generate_subtasks" if s.subtasks else "extract_task",
-    {
-        "generate_subtasks": "generate_subtasks",
-        "extract_task": "extract_task"
-    }
-)
+builder.add_edge("receive_clarification_feedback", "extract_task")
 builder.add_conditional_edges("ask_to_subtask", lambda s: s.subtask_decision, {
-    "no": "create_task",
-    "yes": "generate_subtasks"
+    "yes": "generate_subtasks",
+    "no": "create_task"
 })
 builder.add_edge("generate_subtasks", "judge_subtasks")
-builder.add_conditional_edges("judge_subtasks", lambda s: s.judgment, {
-    "approved": "create_task",
-    "needs_revision": "create_clarifying_questions"
+builder.add_conditional_edges("judge_subtasks", lambda s: s.subtask_judgment, {
+    "pass": "create_task",
+    "fail": "create_clarifying_questions"
 })
 builder.add_edge("create_task", END)
 
-# Compile
+# Compile the graph
 graph = builder.compile()
