@@ -22,7 +22,8 @@ class TaskAgentState(BaseModel):
     clarification_needed: Optional[List[str]] = None
     clarification_questions: Optional[List[str]] = None
     confirmed: Optional[bool] = False
-    judgment: Optional[str] = None
+    task_judgment: Optional[str] = None
+    subtask_judgment: Optional[str] = None
     user_feedback: Optional[str] = None
     subtask_decision: Optional[str] = None
 
@@ -33,11 +34,11 @@ def extract_task_node(state):
 
 def judge_task_node(state):
     result = judge_task(state.input, state.task)
-    return {"judgment": result["status"]}
+    return {"task_judgment": result["status"]}
 
 def judge_subtasks_node(state):
     result = judge_subtasks(state.input, state.task, state.subtasks or [])
-    return {"judgment": result["status"]}
+    return {"subtask_judgment": result["status"]}
 
 def ask_to_subtask_node(state):
     result = ask_to_subtask(state.task)
