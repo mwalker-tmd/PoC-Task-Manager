@@ -1,14 +1,23 @@
 from typing import List, Optional
 from openai import OpenAI
+import os
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 # --- Constants ---
 DEFAULT_MODEL = "gpt-4"
 
 # --- Shared LLM client accessor ---
-_client = OpenAI()
-
 def get_client():
-    return _client
+    openai_api_key = os.getenv("OPENAI_API_KEY")
+    if not openai_api_key:
+        raise ValueError(
+            "OpenAI API key not found. Please set the OPENAI_API_KEY environment variable. "
+            "You can get an API key from https://platform.openai.com/api-keys"
+        )
+    return OpenAI(api_key=openai_api_key)
 
 # --- LLM-enabled functions ---
 def extract_task(prompt: str) -> dict:
