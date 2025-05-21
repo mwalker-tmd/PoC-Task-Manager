@@ -16,10 +16,17 @@ from backend.tools.task_tools import (
     create_task
 )
 
-# Define the shared state
+# --- Nested Metadata Class ---
+class TaskMetadata(BaseModel):
+    task: Optional[str] = None
+    confidence: Optional[float] = None
+    concerns: Optional[List[str]] = None
+    questions: Optional[List[str]] = None
+
+# --- Shared State ---
 class TaskAgentState(BaseModel):
     input: Optional[str] = None
-    task: Optional[str] = None
+    task_metadata: Optional[TaskMetadata] = None
     subtasks: Optional[List[str]] = None
     missing_info: Optional[List[str]] = None
     user_feedback: Optional[str] = None
@@ -32,28 +39,28 @@ class TaskAgentState(BaseModel):
 # Node definitions
 
 def extract_task_node(state: TaskAgentState) -> TaskAgentState:
-    task_data = extract_task(state.input)
-    state.task = task_data.get("task")
+    result = extract_task(state.input)
+    state.task_metadata = TaskMetadata(**result)
     return state
 
 def judge_task_node(state: TaskAgentState) -> TaskAgentState:
-    decision = judge_task(state.task)
+    decision = judge_task(state.task_metadata.task)
     state.task_judgment = decision.get("judgment")
     return state
 
 def ask_to_subtask_node(state: TaskAgentState) -> TaskAgentState:
-    decision = ask_to_subtask(state.task)
+    decision = ask_to_subtask(state.task_metadata.task)
     state.subtask_decision = decision.get("decision")
     return state
 
 def generate_subtasks_node(state: TaskAgentState) -> TaskAgentState:
-    result = generate_subtasks(state.task)
+    result = generate_subtasks(state.task_metadata.task)
     state.subtasks = result.get("subtasks")
     state.missing_info = result.get("missing_info")
     return state
 
 def judge_subtasks_node(state: TaskAgentState) -> TaskAgentState:
-    result = judge_subtasks(state.task, state.subtasks)
+    result = judge_subtasks(state.task_metadata.task, state.subtasks)
     state.subtask_judgment = result.get("judgment")
     return state
 
@@ -71,7 +78,7 @@ def receive_clarification_feedback_node(state: TaskAgentState) -> TaskAgentState
     return state
 
 def create_task_node(state: TaskAgentState) -> TaskAgentState:
-    create_task(state.task, state.subtasks)
+    create_task(state.task_metadata.task, state.subtasks)
     state.confirmed = True
     return state
 

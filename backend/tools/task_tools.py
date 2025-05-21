@@ -20,23 +20,50 @@ def get_client():
     return OpenAI(api_key=openai_api_key)
 
 # --- LLM-enabled functions ---
-def extract_task(prompt: str) -> dict:
+def extract_task(state) -> TaskMetadata:
     """
-    Extract the main task from a user's prompt using an LLM.
+    Use LLM to extract the main task, assess confidence, raise concerns, and generate clarifying questions.
     """
     client = get_client()
+
+    system_msg = (
+        "You are an expert task manager assistant."
+        " Given a user request, extract the main task, assess how confident you are in your interpretation,"
+        " list any concerns or ambiguities, and write any clarification questions you’d ask the user before proceeding."
+    )
+
+    user_prompt = f"""
+    USER REQUEST:
+    {state.input}
+
+    Respond in this JSON format:
+    {{
+      "task": <string>,
+      "confidence": <float 0-1>,
+      "concerns": [<string>...],
+      "questions": [<string>...]
+    }}
+    """
+
     response = client.chat.completions.create(
         model=DEFAULT_MODEL,
         messages=[
-            {"role": "system", "content": "Extract the main task from the user's input."},
-            {"role": "user", "content": f"What is the primary task in this sentence?\n\n{prompt}"}
+            {"role": "system", "content": system_msg},
+            {"role": "user", "content": user_prompt}
         ]
     )
-    content = response.choices[0].message.content.strip()
-    return {
-        "task": content,
-        "context": "LLM-extracted"
-    }
+
+    import json
+    try:
+        content = response.choices[0].message.content.strip()
+        return TaskMetadata(**json.loads(content))
+    except Exception as e:
+        return TaskMetadata(
+            task=state.input.strip(),
+            confidence=0.5,
+            concerns=["Failed to parse LLM response"],
+            questions=[]
+        )
 
 def analyze_subtasks(task: str) -> dict:
     """
