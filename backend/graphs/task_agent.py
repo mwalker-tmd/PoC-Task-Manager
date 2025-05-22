@@ -34,18 +34,17 @@ def ask_to_subtask_node(state: TaskAgentState) -> TaskAgentState:
     return state
 
 def generate_subtasks_node(state: TaskAgentState) -> TaskAgentState:
-    result = generate_subtasks(state.task_metadata.task)
-    state.subtasks = result.get("subtasks")
-    state.missing_info = result.get("missing_info")
+    result = generate_subtasks(state.task_metadata)
+    state.subtask_metadata = result
     return state
 
 def judge_subtasks_node(state: TaskAgentState) -> TaskAgentState:
-    result = judge_subtasks(state.task_metadata.task, state.subtasks)
+    result = judge_subtasks(state.subtask_metadata)
     state.subtask_judgment = result.get("judgment")
     return state
 
 def create_clarifying_questions_node(state: TaskAgentState) -> TaskAgentState:
-    result = create_clarifying_questions(state.missing_info)
+    result = create_clarifying_questions(state.subtask_metadata.missing_info)
     state.clarification_questions = result.get("questions")
     return state
 

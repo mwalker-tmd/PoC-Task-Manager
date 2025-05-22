@@ -2,7 +2,8 @@ from typing import List, Optional
 from openai import OpenAI
 import os
 from dotenv import load_dotenv
-from backend.types import TaskMetadata, TaskJudgment
+import json
+from backend.types import TaskMetadata, TaskJudgment, SubtaskMetadata
 
 # Load environment variables from .env file
 load_dotenv()
@@ -57,7 +58,7 @@ def extract_task(state) -> TaskMetadata:
         ]
     )
 
-    import json
+    
     try:
         content = response.choices[0].message.content.strip()
         return TaskMetadata(**json.loads(content))
@@ -102,34 +103,6 @@ def review(task: str, subtasks: Optional[List[str]] = None) -> dict:
         "task": task,
         "subtasks": subtasks or [],
         "message": "Here's what I've extracted. Let me know if you'd like to change anything."
-    }
-
-def revise_subtasks(user_feedback: str, subtasks: List[str]) -> dict:
-    """
-    Accept user feedback and modify subtasks using an LLM.
-    """
-    client = get_client()
-    prompt = f"""
-    Current subtasks:
-    {chr(10).join(f"- {s}" for s in subtasks)}
-
-    User feedback:
-    "{user_feedback}"
-
-    Please return an updated list of subtasks based on the feedback.
-    Return them as a plain numbered list.
-    """
-    response = client.chat.completions.create(
-        model=DEFAULT_MODEL,
-        messages=[
-            {"role": "system", "content": "You are a helpful assistant that revises task subtasks."},
-            {"role": "user", "content": prompt}
-        ]
-    )
-    content = response.choices[0].message.content.strip()
-    new_subtasks = [line.split(".", 1)[-1].strip(" ") for line in content.splitlines() if line.strip()]
-    return {
-        "subtasks": new_subtasks
     }
 
 def judge_task(metadata: TaskMetadata) -> TaskJudgment:
@@ -182,7 +155,7 @@ def judge_task(metadata: TaskMetadata) -> TaskJudgment:
         ]
     )
 
-    import json
+    
     try:
         content = response.choices[0].message.content.strip()
         return TaskJudgment(**json.loads(content))
@@ -228,15 +201,49 @@ def save_task_to_db(task: str, subtasks: Optional[List[str]] = None):
         "status": "saved"
     }
 
-def generate_subtasks(task: str) -> dict:
+def generate_subtasks(metadata: TaskMetadata) -> SubtaskMetadata:
     """
-    Generate subtasks for a given task. Currently a stub.
-    TODO: Implement LLM-based subtask generation
+    Use LLM to propose subtasks for a given task and identify missing information.
     """
-    return {
-        "subtasks": ["Subtask 1", "Subtask 2"],  # Placeholder subtasks
-        "missing_info": []  # Placeholder missing info
-    }
+    client = get_client()
+
+    system_msg = """
+    <system_prompt>
+        You are an expert task planning assistant. Your job is to break down a single task into clear, actionable subtasks
+        and identify any missing information needed to proceed.
+
+        Return your response in this JSON format:
+        {
+        "subtasks": [<string>, ...],
+        "missing_info": [<string>, ...]
+        }
+    </system_prompt>
+    """
+
+    user_prompt = f"""
+    <user_prompt>
+        <task>{metadata.task}</task>
+        <confidence>{metadata.confidence}</confidence>
+    </user_prompt>
+    """
+
+    response = client.chat.completions.create(
+        model=DEFAULT_MODEL,
+        messages=[
+            {"role": "system", "content": system_msg},
+            {"role": "user", "content": user_prompt}
+        ]
+    )
+
+    
+    try:
+        content = response.choices[0].message.content.strip()
+        return SubtaskMetadata(**json.loads(content))
+    except Exception:
+        return SubtaskMetadata(
+            subtasks=[],
+            missing_info=["Unable to parse subtask generation response"]
+        )
 
 def ask_clarifying_questions(questions: List[str]) -> dict:
     """

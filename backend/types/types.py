@@ -11,11 +11,14 @@ class TaskJudgment(BaseModel):
     judgment: str  # 'pass' or 'fail'
     reason: Optional[str] = None
 
+class SubtaskMetadata(BaseModel):
+    subtasks: List[str]
+    missing_info: List[str]
+
 class TaskAgentState(BaseModel):
     input: Optional[str] = None
     task_metadata: Optional[TaskMetadata] = None
-    subtasks: Optional[List[str]] = None
-    missing_info: Optional[List[str]] = None
+    subtask_metadata: Optional[SubtaskMetadata] = None
     user_feedback: Optional[str] = None
     subtask_decision: Optional[str] = None
     clarification_questions: Optional[List[str]] = None

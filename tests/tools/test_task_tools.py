@@ -1,7 +1,7 @@
 import pytest
 from unittest.mock import Mock, patch
 from backend.tools import task_tools
-from backend.types import TaskMetadata, TaskAgentState, TaskJudgment
+from backend.types import TaskMetadata, TaskAgentState, TaskJudgment, SubtaskMetadata
 
 @pytest.fixture
 def mock_openai():
@@ -104,4 +104,48 @@ def test_review():
     result = task_tools.review("Do the dishes", ["Fill sink", "Scrub"])
     assert result["task"] == "Do the dishes"
     assert "Fill sink" in result["subtasks"]
-    assert "Let me know if you'd like to change anything" in result["message"] 
+    assert "Let me know if you'd like to change anything" in result["message"]
+
+def test_generate_subtasks_basic(mock_openai):
+    mock_openai.chat.completions.create.return_value.choices = [
+        Mock(message=Mock(content='''{
+            "subtasks": [
+                "Fill sink with hot water",
+                "Add dish soap",
+                "Scrub dishes",
+                "Rinse and dry"
+            ],
+            "missing_info": [
+                "Water temperature preference",
+                "Drying method preference"
+            ]
+        }'''))
+    ]
+    metadata = TaskMetadata(
+        task="Do the dishes",
+        confidence=0.9,
+        concerns=[],
+        questions=[]
+    )
+    result = task_tools.generate_subtasks(metadata)
+    assert isinstance(result, SubtaskMetadata)
+    assert len(result.subtasks) > 0
+    assert any("fill" in subtask.lower() for subtask in result.subtasks)
+    assert any("scrub" in subtask.lower() for subtask in result.subtasks)
+    assert len(result.missing_info) > 0
+    assert any("temperature" in info.lower() for info in result.missing_info)
+
+def test_generate_subtasks_error_handling(mock_openai):
+    mock_openai.chat.completions.create.return_value.choices = [
+        Mock(message=Mock(content="invalid json"))
+    ]
+    metadata = TaskMetadata(
+        task="Do the dishes",
+        confidence=0.9,
+        concerns=[],
+        questions=[]
+    )
+    result = task_tools.generate_subtasks(metadata)
+    assert isinstance(result, SubtaskMetadata)
+    assert result.subtasks == []
+    assert "Unable to parse" in result.missing_info[0] 
