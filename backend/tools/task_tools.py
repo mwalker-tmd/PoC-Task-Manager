@@ -3,7 +3,9 @@ from openai import OpenAI
 import os
 from dotenv import load_dotenv
 import json
-from backend.types import TaskMetadata, TaskJudgment, SubtaskMetadata, SubtaskJudgment
+from langgraph.errors import GraphInterrupt
+from langgraph.types import Interrupt
+from backend.types import TaskMetadata, TaskJudgment, SubtaskMetadata, SubtaskJudgment, SubtaskDecision
 
 # Load environment variables from .env file
 load_dotenv()
@@ -277,7 +279,6 @@ def generate_subtasks(metadata: TaskMetadata) -> SubtaskMetadata:
         ]
     )
 
-    
     try:
         content = response.choices[0].message.content.strip()
         return SubtaskMetadata(**json.loads(content))
@@ -287,7 +288,7 @@ def generate_subtasks(metadata: TaskMetadata) -> SubtaskMetadata:
             confidence=0.0,
             concerns=["Unable to parse subtask generation response"],
             questions=[]
-    )
+        )
 
 def ask_clarifying_questions(questions: List[str]) -> dict:
     """
@@ -310,13 +311,6 @@ def create_task(task: str, subtasks: Optional[List[str]] = None) -> dict:
     }
 
 # The following functions are stubs for the v2 task agent
-def ask_to_subtask(task: str) -> dict:
-    """
-    Ask the user to select a subtask from a list.
-    """
-    return {
-        "decision": "no"
-    }
 def create_clarifying_questions(task: str) -> dict:    
     """
     Create clarifying questions for a subtask.

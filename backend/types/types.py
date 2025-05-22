@@ -26,13 +26,18 @@ class SubtaskJudgment(BaseModel):
     judgment: JudgmentType
     reason: str
 
+class SubtaskDecision(BaseModel):
+    value: Optional[str] = None  # "yes" or "no"
+    retries: int = 0
+
+
 class TaskAgentState(BaseModel):
     input: Optional[str] = None
     task_metadata: Optional[TaskMetadata] = None
     subtask_metadata: Optional[SubtaskMetadata] = None
     user_feedback: Optional[str] = None
-    subtask_decision: Optional[str] = None
+    subtask_decision: Optional[SubtaskDecision] = None
     clarification_questions: Optional[List[str]] = None
     confirmed: Optional[bool] = False
     task_judgment: Optional[TaskJudgment] = None
-    subtask_judgment: Optional[str] = None
+    subtask_judgment: Optional[SubtaskJudgment] = None

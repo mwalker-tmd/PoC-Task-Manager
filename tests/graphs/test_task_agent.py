@@ -1,6 +1,8 @@
-from backend.graphs.task_agent import TaskAgentState, extract_task_node, generate_subtasks_node, judge_subtasks_node
-from backend.types import TaskMetadata, SubtaskMetadata, JudgmentType
+from backend.graphs.task_agent import TaskAgentState, extract_task_node, generate_subtasks_node, judge_subtasks_node, ask_to_subtask_node
+from backend.types import TaskMetadata, SubtaskMetadata, JudgmentType, SubtaskDecision
 from unittest.mock import Mock
+from langgraph.errors import GraphInterrupt
+import pytest
 
 def test_task_agent_state_optional_input():
     state = TaskAgentState()
@@ -164,4 +166,36 @@ def test_judge_subtasks_node_low_confidence(mock_openai):
     result = judge_subtasks_node(state)
     assert result.subtask_judgment.judgment == JudgmentType.FAIL
     assert "confidence" in result.subtask_judgment.reason.lower()
-    assert "unclear" in result.subtask_judgment.reason.lower() 
+    assert "unclear" in result.subtask_judgment.reason.lower()
+
+def test_ask_to_subtask_node_first_prompt():
+    state = TaskAgentState()
+    with pytest.raises(GraphInterrupt) as exc_info:
+        ask_to_subtask_node(state)
+    assert "Would you like help breaking this task into subtasks?" in str(exc_info.value)
+    assert state.subtask_decision.retries == 1
+
+def test_ask_to_subtask_node_retry():
+    state = TaskAgentState(subtask_decision=SubtaskDecision(value=None, retries=1))
+    with pytest.raises(GraphInterrupt) as exc_info:
+        ask_to_subtask_node(state)
+    assert "Sorry, I was unable to determine" in str(exc_info.value)
+    assert state.subtask_decision.retries == 2
+
+def test_ask_to_subtask_node_max_retries():
+    state = TaskAgentState(subtask_decision=SubtaskDecision(value=None, retries=2))
+    result = ask_to_subtask_node(state)
+    assert result.subtask_decision.value == "no"
+    assert result.subtask_decision.retries == 3
+
+def test_ask_to_subtask_node_with_yes():
+    state = TaskAgentState(subtask_decision=SubtaskDecision(value="yes", retries=0))
+    result = ask_to_subtask_node(state)
+    assert result.subtask_decision.value == "yes"
+    assert result.subtask_decision.retries == 0
+
+def test_ask_to_subtask_node_with_no():
+    state = TaskAgentState(subtask_decision=SubtaskDecision(value="no", retries=0))
+    result = ask_to_subtask_node(state)
+    assert result.subtask_decision.value == "no"
+    assert result.subtask_decision.retries == 0 
