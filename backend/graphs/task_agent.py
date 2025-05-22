@@ -3,7 +3,7 @@ from langgraph.graph.message import add_messages
 from langchain_core.runnables import RunnableLambda
 from typing import Optional, List
 
-from backend.types import TaskMetadata, TaskJudgment, TaskAgentState
+from backend.types import TaskMetadata, TaskJudgment, TaskAgentState, JudgmentType
 from backend.tools import (
     extract_task,
     judge_task,
@@ -39,8 +39,8 @@ def generate_subtasks_node(state: TaskAgentState) -> TaskAgentState:
     return state
 
 def judge_subtasks_node(state: TaskAgentState) -> TaskAgentState:
-    result = judge_subtasks(state.subtask_metadata)
-    state.subtask_judgment = result.get("judgment")
+    result = judge_subtasks(state.task_metadata, state.subtask_metadata)
+    state.subtask_judgment = result
     return state
 
 def create_clarifying_questions_node(state: TaskAgentState) -> TaskAgentState:
@@ -77,9 +77,9 @@ builder.add_node("create_task", RunnableLambda(create_task_node))
 builder.set_entry_point("extract_task")
 
 builder.add_edge("extract_task", "judge_task")
-builder.add_conditional_edges("judge_task", lambda s: s.task_judgment, {
-    "pass": "ask_to_subtask",
-    "fail": "create_clarifying_questions"
+builder.add_conditional_edges("judge_task", lambda s: s.task_judgment.judgment.value, {
+    JudgmentType.PASS.value: "ask_to_subtask",
+    JudgmentType.FAIL.value: "create_clarifying_questions"
 })
 builder.add_edge("create_clarifying_questions", "ask_clarifying_questions")
 builder.add_edge("ask_clarifying_questions", "receive_clarification_feedback")
@@ -89,9 +89,9 @@ builder.add_conditional_edges("ask_to_subtask", lambda s: s.subtask_decision, {
     "no": "create_task"
 })
 builder.add_edge("generate_subtasks", "judge_subtasks")
-builder.add_conditional_edges("judge_subtasks", lambda s: s.subtask_judgment, {
-    "pass": "create_task",
-    "fail": "create_clarifying_questions"
+builder.add_conditional_edges("judge_subtasks", lambda s: s.subtask_judgment.judgment.value, {
+    JudgmentType.PASS.value: "create_task",
+    JudgmentType.FAIL.value: "create_clarifying_questions"
 })
 builder.add_edge("create_task", END)
 

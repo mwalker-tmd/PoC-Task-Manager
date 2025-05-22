@@ -1,7 +1,7 @@
 import pytest
 from unittest.mock import Mock, patch
 from backend.tools import task_tools
-from backend.types import TaskMetadata, TaskAgentState, TaskJudgment, SubtaskMetadata
+from backend.types import TaskMetadata, TaskAgentState, TaskJudgment, SubtaskMetadata, JudgmentType
 
 @pytest.fixture
 def mock_openai():
@@ -44,8 +44,8 @@ def test_extract_task_error_handling(mock_openai):
     result = task_tools.extract_task(state)
     assert isinstance(result, TaskMetadata)
     assert result.task == "Do the dishes"
-    assert result.confidence == 0.5
-    assert "Failed to parse LLM response" in result.concerns
+    assert result.confidence == 0.0
+    assert "Unable to parse task extraction response" in result.concerns
     assert result.questions == []
 
 def test_judge_task_pass(mock_openai):
@@ -60,7 +60,7 @@ def test_judge_task_pass(mock_openai):
     )
     result = task_tools.judge_task(metadata)
     assert isinstance(result, TaskJudgment)
-    assert result.judgment == "pass"
+    assert result.judgment == JudgmentType.PASS
     assert isinstance(result.reason, str)
 
 def test_judge_task_low_confidence(mock_openai):
@@ -75,7 +75,7 @@ def test_judge_task_low_confidence(mock_openai):
     )
     result = task_tools.judge_task(metadata)
     assert isinstance(result, TaskJudgment)
-    assert result.judgment == "fail"
+    assert result.judgment == JudgmentType.FAIL
     assert "confidence" in result.reason.lower() or "vague" in result.reason.lower()
 
 def test_judge_task_error_handling(mock_openai):
@@ -90,7 +90,7 @@ def test_judge_task_error_handling(mock_openai):
     )
     result = task_tools.judge_task(metadata)
     assert isinstance(result, TaskJudgment)
-    assert result.judgment == "fail"
+    assert result.judgment == JudgmentType.FAIL
     assert "unable to parse" in result.reason.lower()
 
 def test_clarify():
@@ -115,10 +115,9 @@ def test_generate_subtasks_basic(mock_openai):
                 "Scrub dishes",
                 "Rinse and dry"
             ],
-            "missing_info": [
-                "Water temperature preference",
-                "Drying method preference"
-            ]
+            "confidence": 0.9,
+            "concerns": [],
+            "questions": []
         }'''))
     ]
     metadata = TaskMetadata(
@@ -132,8 +131,9 @@ def test_generate_subtasks_basic(mock_openai):
     assert len(result.subtasks) > 0
     assert any("fill" in subtask.lower() for subtask in result.subtasks)
     assert any("scrub" in subtask.lower() for subtask in result.subtasks)
-    assert len(result.missing_info) > 0
-    assert any("temperature" in info.lower() for info in result.missing_info)
+    assert result.confidence == 0.9
+    assert result.concerns == []
+    assert result.questions == []
 
 def test_generate_subtasks_error_handling(mock_openai):
     mock_openai.chat.completions.create.return_value.choices = [
@@ -148,4 +148,6 @@ def test_generate_subtasks_error_handling(mock_openai):
     result = task_tools.generate_subtasks(metadata)
     assert isinstance(result, SubtaskMetadata)
     assert result.subtasks == []
-    assert "Unable to parse" in result.missing_info[0] 
+    assert result.confidence == 0.0
+    assert "Unable to parse subtask generation response" in result.concerns
+    assert result.questions == [] 

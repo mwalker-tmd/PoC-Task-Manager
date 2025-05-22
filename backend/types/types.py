@@ -1,5 +1,10 @@
 from pydantic import BaseModel
 from typing import Optional, List
+from enum import Enum
+
+class JudgmentType(str, Enum):
+    PASS = "pass"
+    FAIL = "fail"
 
 class TaskMetadata(BaseModel):
     task: Optional[str] = None
@@ -8,12 +13,18 @@ class TaskMetadata(BaseModel):
     questions: Optional[List[str]] = None
 
 class TaskJudgment(BaseModel):
-    judgment: str  # 'pass' or 'fail'
+    judgment: JudgmentType
     reason: Optional[str] = None
 
 class SubtaskMetadata(BaseModel):
     subtasks: List[str]
-    missing_info: List[str]
+    confidence: Optional[float] = None
+    concerns: Optional[List[str]] = None
+    questions: Optional[List[str]] = None
+
+class SubtaskJudgment(BaseModel):
+    judgment: JudgmentType
+    reason: str
 
 class TaskAgentState(BaseModel):
     input: Optional[str] = None
