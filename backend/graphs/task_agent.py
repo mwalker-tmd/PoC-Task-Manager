@@ -1,10 +1,10 @@
 from langgraph.graph import StateGraph, END
 from langgraph.graph.message import add_messages
 from langchain_core.runnables import RunnableLambda
-from pydantic import BaseModel
 from typing import Optional, List
 
-from backend.tools.task_tools import (
+from backend.types import TaskMetadata, TaskJudgment, TaskAgentState
+from backend.tools import (
     extract_task,
     judge_task,
     ask_to_subtask,
@@ -16,26 +16,6 @@ from backend.tools.task_tools import (
     create_task
 )
 
-# --- Nested Metadata Class ---
-class TaskMetadata(BaseModel):
-    task: Optional[str] = None
-    confidence: Optional[float] = None
-    concerns: Optional[List[str]] = None
-    questions: Optional[List[str]] = None
-
-# --- Shared State ---
-class TaskAgentState(BaseModel):
-    input: Optional[str] = None
-    task_metadata: Optional[TaskMetadata] = None
-    subtasks: Optional[List[str]] = None
-    missing_info: Optional[List[str]] = None
-    user_feedback: Optional[str] = None
-    subtask_decision: Optional[str] = None
-    clarification_questions: Optional[List[str]] = None
-    confirmed: Optional[bool] = False
-    task_judgment: Optional[str] = None
-    subtask_judgment: Optional[str] = None
-
 # Node definitions
 
 def extract_task_node(state: TaskAgentState) -> TaskAgentState:
@@ -44,8 +24,8 @@ def extract_task_node(state: TaskAgentState) -> TaskAgentState:
     return state
 
 def judge_task_node(state: TaskAgentState) -> TaskAgentState:
-    decision = judge_task(state.task_metadata.task)
-    state.task_judgment = decision.get("judgment")
+    decision = judge_task(state.task_metadata)
+    state.task_judgment = TaskJudgment(**judge_task(state.task_metadata))
     return state
 
 def ask_to_subtask_node(state: TaskAgentState) -> TaskAgentState:
