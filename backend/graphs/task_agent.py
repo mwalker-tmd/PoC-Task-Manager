@@ -2,12 +2,13 @@ from langgraph.graph import StateGraph, END
 from langgraph.graph.message import add_messages
 from langchain_core.runnables import RunnableLambda
 from typing import Optional, List
+from langgraph.errors import GraphInterrupt
+from langgraph.types import Interrupt
 
-from backend.types import TaskMetadata, TaskJudgment, TaskAgentState, JudgmentType
+from backend.types import TaskMetadata, TaskJudgment, JudgmentType, SubtaskDecision, TaskAgentState
 from backend.tools import (
     extract_task,
     judge_task,
-    ask_to_subtask,
     generate_subtasks,
     judge_subtasks,
     create_clarifying_questions,
@@ -29,8 +30,33 @@ def judge_task_node(state: TaskAgentState) -> TaskAgentState:
     return state
 
 def ask_to_subtask_node(state: TaskAgentState) -> TaskAgentState:
-    decision = ask_to_subtask(state.task_metadata.task)
-    state.subtask_decision = decision.get("decision")
+    """
+    Pause execution and ask the user if they want help breaking the task into subtasks.
+    Retries up to 2 times before defaulting to "no".
+    """
+    if not state.subtask_decision:
+        state.subtask_decision = SubtaskDecision(value=None, retries=0)
+        prompt_message = "Would you like help breaking this task into subtasks? (yes/no)"
+    else:
+        prompt_message = ("Sorry, I was unable to determine if that was a yes or a no.\n\n" 
+            "Would you like help breaking this task into subtasks? (yes/no)"
+        )
+
+    if not state.subtask_decision.value:
+        state.subtask_decision.retries += 1
+
+        if state.subtask_decision.retries >= 3:
+            state.subtask_decision.value = "no"
+        else:
+            raise GraphInterrupt(
+                Interrupt(
+                    value=prompt_message,
+                    resumable=True
+                )
+            )
+    
+    # Clear user feedback after processing
+    state.user_feedback = ""
     return state
 
 def generate_subtasks_node(state: TaskAgentState) -> TaskAgentState:
