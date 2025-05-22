@@ -198,4 +198,13 @@ def test_ask_to_subtask_node_with_no():
     state = TaskAgentState(subtask_decision=SubtaskDecision(value="no", retries=0))
     result = ask_to_subtask_node(state)
     assert result.subtask_decision.value == "no"
-    assert result.subtask_decision.retries == 0 
+    assert result.subtask_decision.retries == 0
+
+def test_ask_to_subtask_node_clears_user_feedback():
+    state = TaskAgentState(
+        subtask_decision=SubtaskDecision(value="yes", retries=0),
+        user_feedback="some feedback"
+    )
+    result = ask_to_subtask_node(state)
+    assert result.user_feedback == ""
+    assert result.subtask_decision.value == "yes" 
