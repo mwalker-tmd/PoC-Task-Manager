@@ -19,13 +19,13 @@ from backend.tools import (
 # Node definitions
 
 def extract_task_node(state: TaskAgentState) -> TaskAgentState:
-    result = extract_task(state.input)
-    state.task_metadata = TaskMetadata(**result)
+    result = extract_task(state)
+    state.task_metadata = result
     return state
 
 def judge_task_node(state: TaskAgentState) -> TaskAgentState:
-    decision = judge_task(state.task_metadata)
-    state.task_judgment = TaskJudgment(**judge_task(state.task_metadata))
+    result = judge_task(state.task_metadata)
+    state.task_judgment = result
     return state
 
 def ask_to_subtask_node(state: TaskAgentState) -> TaskAgentState:

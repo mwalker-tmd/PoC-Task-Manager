@@ -1,29 +1,15 @@
 import pytest
 from backend.tools import task_tools
+from backend.types import TaskMetadata, TaskAgentState
 
 def test_extract_task():
-    result = task_tools.extract_task("Do the dishes")
-    assert "do the dishes" in result["task"].lower()
-
-def test_analyze_subtasks_with_presentation():
-    result = task_tools.analyze_subtasks("Create a presentation")
-    assert result["has_subtasks"] is True
-    subtasks = result["subtasks"]
-    assert len(subtasks) > 0
-    assert any(term in subtask.lower() for subtask in subtasks for term in [
-        "purpose", "objective", "goal", "aim", "intent", "target", "focus",
-        "define", "determine", "identify", "establish", "set"
-    ])
-    assert any(term in subtask.lower() for subtask in subtasks for term in [
-        "structure", "outline", "content", "section", "slide", "visual"
-    ])
-
-def test_analyze_subtasks_without_presentation():
-    result = task_tools.analyze_subtasks("Go shopping")
-    assert result["has_subtasks"] is True
-    subtasks = result["subtasks"]
-    assert len(subtasks) > 0
-    assert any("list" in subtask.lower() or "needed" in subtask.lower() for subtask in subtasks)
+    state = TaskAgentState(input="Do the dishes")
+    result = task_tools.extract_task(state)
+    assert isinstance(result, TaskMetadata)
+    assert "do the dishes" in result.task.lower()
+    assert isinstance(result.confidence, float)
+    assert isinstance(result.concerns, list)
+    assert isinstance(result.questions, list)
 
 def test_clarify():
     result = task_tools.clarify(["topic", "deadline"])

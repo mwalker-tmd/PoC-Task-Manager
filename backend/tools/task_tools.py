@@ -2,6 +2,7 @@ from typing import List, Optional
 from openai import OpenAI
 import os
 from dotenv import load_dotenv
+from backend.types import TaskMetadata, TaskJudgment
 
 # Load environment variables from .env file
 load_dotenv()
@@ -29,7 +30,7 @@ def extract_task(state) -> TaskMetadata:
     system_msg = (
         "You are an expert task manager assistant."
         " Given a user request, extract the main task, assess how confident you are in your interpretation,"
-        " list any concerns or ambiguities, and write any clarification questions you’d ask the user before proceeding."
+        " list any concerns or ambiguities, and write any clarification questions you'd ask the user before proceeding."
     )
 
     user_prompt = f"""
@@ -128,7 +129,7 @@ def revise_subtasks(user_feedback: str, subtasks: List[str]) -> dict:
         "subtasks": new_subtasks
     }
 
-def judge_task(metadata: TaskMetadata) -> dict:
+def judge_task(metadata: TaskMetadata) -> TaskJudgment:
     """
     Determine if the extracted task is clearly defined and actionable.
     Uses task confidence, concerns, and clarification questions as context.
@@ -169,12 +170,12 @@ def judge_task(metadata: TaskMetadata) -> dict:
     import json
     try:
         content = response.choices[0].message.content.strip()
-        return json.loads(content)
+        return TaskJudgment(**json.loads(content))
     except Exception:
-        return {
-            "judgment": "fail",
-            "reason": "Task judgment failed: unable to parse LLM response."
-        }
+        return TaskJudgment(
+            judgment="fail",
+            reason="Task judgment failed: unable to parse LLM response."
+        )
 
 def judge_subtasks(original_prompt: str, final_task: str, subtasks: List[str]) -> dict:
     """
@@ -212,6 +213,35 @@ def save_task_to_db(task: str, subtasks: Optional[List[str]] = None):
         "status": "saved"
     }
 
+def generate_subtasks(task: str) -> dict:
+    """
+    Generate subtasks for a given task. Currently a stub.
+    TODO: Implement LLM-based subtask generation
+    """
+    return {
+        "subtasks": ["Subtask 1", "Subtask 2"],  # Placeholder subtasks
+        "missing_info": []  # Placeholder missing info
+    }
+
+def ask_clarifying_questions(questions: List[str]) -> dict:
+    """
+    Present clarifying questions to the user. Currently a stub.
+    TODO: Implement UI interaction for asking questions
+    """
+    return {
+        "updated_input": "User's response to questions"  # Placeholder response
+    }
+
+def create_task(task: str, subtasks: Optional[List[str]] = None) -> dict:
+    """
+    Create a new task with optional subtasks. Currently a stub.
+    TODO: Implement task creation logic
+    """
+    return {
+        "status": "created",
+        "task": task,
+        "subtasks": subtasks or []
+    }
 
 # The following functions are stubs for the v2 task agent
 def ask_to_subtask(task: str) -> dict:
