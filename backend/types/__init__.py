@@ -1,3 +1,3 @@
-from .types import TaskMetadata, TaskJudgment, TaskAgentState
+from .types import TaskMetadata, TaskJudgment, SubtaskMetadata, SubtaskJudgment, TaskAgentState
 
-__all__ = ["TaskMetadata", "TaskJudgment", "TaskAgentState"] 
+__all__ = ["TaskMetadata", "TaskJudgment", "SubtaskMetadata", "SubtaskJudgment", "TaskAgentState"] 
