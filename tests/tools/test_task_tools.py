@@ -93,19 +93,6 @@ def test_judge_task_error_handling(mock_openai):
     assert result.judgment == JudgmentType.FAIL
     assert "unable to parse" in result.reason.lower()
 
-def test_clarify():
-    result = task_tools.clarify(["topic", "deadline"])
-    questions = result["questions"]
-    assert len(questions) == 2
-    assert any("topic" in question.lower() for question in questions)
-    assert any(term in question.lower() for question in questions for term in ["deadline", "time", "when", "due date", "completion"])
-
-def test_review():
-    result = task_tools.review("Do the dishes", ["Fill sink", "Scrub"])
-    assert result["task"] == "Do the dishes"
-    assert "Fill sink" in result["subtasks"]
-    assert "Let me know if you'd like to change anything" in result["message"]
-
 def test_generate_subtasks_basic(mock_openai):
     mock_openai.chat.completions.create.return_value.choices = [
         Mock(message=Mock(content='''{
@@ -150,4 +137,111 @@ def test_generate_subtasks_error_handling(mock_openai):
     assert result.subtasks == []
     assert result.confidence == 0.0
     assert "Unable to parse subtask generation response" in result.concerns
-    assert result.questions == [] 
+    assert result.questions == []
+
+def test_retry_task_with_feedback_basic(mock_openai):
+    mock_openai.chat.completions.create.return_value.choices = [
+        Mock(message=Mock(content='{"task": "wash all dishes in the sink", "confidence": 0.9, "concerns": [], "questions": []}'))
+    ]
+    state = TaskAgentState(
+        task_metadata=TaskMetadata(
+            task="do the dishes",
+            confidence=0.5,
+            concerns=["Task is vague"],
+            questions=["Which dishes?"]
+        ),
+        user_feedback="I mean all the dishes in the sink"
+    )
+    result = task_tools.retry_task_with_feedback(state)
+    assert isinstance(result, TaskMetadata)
+    assert "wash all dishes in the sink" in result.task.lower()
+    assert result.confidence == 0.9
+    assert result.concerns == []
+    assert result.questions == []
+
+def test_retry_task_with_feedback_error_handling(mock_openai):
+    mock_openai.chat.completions.create.return_value.choices = [
+        Mock(message=Mock(content="invalid json"))
+    ]
+    state = TaskAgentState(
+        task_metadata=TaskMetadata(
+            task="do the dishes",
+            confidence=0.5,
+            concerns=["Task is vague"],
+            questions=["Which dishes?"]
+        ),
+        user_feedback="I mean all the dishes in the sink"
+    )
+    result = task_tools.retry_task_with_feedback(state)
+    assert isinstance(result, TaskMetadata)
+    assert result.task == "do the dishes"  # Should keep original task on error
+    assert result.confidence == 0.0
+    assert "Unable to parse task refinement response" in result.concerns
+    assert result.questions == []
+
+def test_retry_subtasks_with_feedback_basic(mock_openai):
+    mock_openai.chat.completions.create.return_value.choices = [
+        Mock(message=Mock(content='''{
+            "subtasks": [
+                "Fill sink with hot water and soap",
+                "Scrub all dishes in the sink",
+                "Rinse with clean water",
+                "Dry and put away"
+            ],
+            "confidence": 0.9,
+            "concerns": [],
+            "questions": []
+        }'''))
+    ]
+    state = TaskAgentState(
+        task_metadata=TaskMetadata(
+            task="do the dishes",
+            confidence=0.9,
+            concerns=[],
+            questions=[]
+        ),
+        user_feedback="Include drying and putting away"
+    )
+    result = task_tools.retry_subtasks_with_feedback(state)
+    assert isinstance(result, SubtaskMetadata)
+    assert len(result.subtasks) > 0
+    assert any("dry" in subtask.lower() for subtask in result.subtasks)
+    assert any("put away" in subtask.lower() for subtask in result.subtasks)
+    assert result.confidence == 0.9
+    assert result.concerns == []
+    assert result.questions == []
+
+def test_retry_subtasks_with_feedback_error_handling(mock_openai):
+    mock_openai.chat.completions.create.return_value.choices = [
+        Mock(message=Mock(content="invalid json"))
+    ]
+    state = TaskAgentState(
+        task_metadata=TaskMetadata(
+            task="do the dishes",
+            confidence=0.9,
+            concerns=[],
+            questions=[]
+        ),
+        user_feedback="Include drying and putting away"
+    )
+    result = task_tools.retry_subtasks_with_feedback(state)
+    assert isinstance(result, SubtaskMetadata)
+    assert result.subtasks == []
+    assert result.confidence == 0.0
+    assert "Unable to parse subtask refinement response" in result.concerns
+    assert result.questions == []
+
+def test_create_task_basic():
+    result = task_tools.create_task("Do the dishes", ["Fill sink", "Scrub", "Rinse"])
+    assert result["status"] == "saved"
+    assert result["task"] == "Do the dishes"
+    assert len(result["subtasks"]) == 3
+    assert "Fill sink" in result["subtasks"]
+    assert "Scrub" in result["subtasks"]
+    assert "Rinse" in result["subtasks"]
+
+def test_create_task_no_subtasks():
+    result = task_tools.create_task("Do the dishes")
+    assert result["status"] == "saved"
+    assert result["task"] == "Do the dishes"
+    assert result["subtasks"] == [] 
