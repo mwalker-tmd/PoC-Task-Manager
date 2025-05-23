@@ -3,8 +3,6 @@ from openai import OpenAI
 import os
 from dotenv import load_dotenv
 import json
-from langgraph.errors import GraphInterrupt
-from langgraph.types import Interrupt
 from backend.types import TaskMetadata, TaskJudgment, SubtaskMetadata, SubtaskJudgment, SubtaskDecision
 
 # Load environment variables from .env file
@@ -60,7 +58,6 @@ def extract_task(state) -> TaskMetadata:
         ]
     )
 
-    
     try:
         content = response.choices[0].message.content.strip()
         return TaskMetadata(**json.loads(content))
@@ -71,41 +68,6 @@ def extract_task(state) -> TaskMetadata:
             concerns=["Unable to parse task extraction response"],
             questions=[]
         )
-
-def clarify(missing_info: List[str]) -> dict:
-    """
-    Generate clarification questions for missing task info using an LLM.
-    """
-    client = get_client()
-    if not missing_info:
-        return {"questions": []}
-
-    prompt = f"""
-    A task is missing the following pieces of information: {', '.join(missing_info)}.
-    Write a short clarification question for each.
-    """
-    response = client.chat.completions.create(
-        model=DEFAULT_MODEL,
-        messages=[
-            {"role": "system", "content": "You generate clarification questions for missing task details."},
-            {"role": "user", "content": prompt}
-        ]
-    )
-    content = response.choices[0].message.content.strip()
-    questions = [line.lstrip("- ").strip() for line in content.splitlines() if line.strip()]
-    return {
-        "questions": questions
-    }
-
-def review(task: str, subtasks: Optional[List[str]] = None) -> dict:
-    """
-    Present the task and subtasks back to the user for review.
-    """
-    return {
-        "task": task,
-        "subtasks": subtasks or [],
-        "message": "Here's what I've extracted. Let me know if you'd like to change anything."
-    }
 
 def judge_task(metadata: TaskMetadata) -> TaskJudgment:
     """
@@ -159,7 +121,6 @@ def judge_task(metadata: TaskMetadata) -> TaskJudgment:
         ]
     )
 
-    
     try:
         content = response.choices[0].message.content.strip()
         return TaskJudgment(**json.loads(content))
@@ -195,7 +156,6 @@ def judge_subtasks(metadata: TaskMetadata, subtasks: SubtaskMetadata) -> Subtask
         "judgment": "pass" or "fail",
         "reason": "<clarification or explanation if needed>"
         }
-        </system_prompt>
     </system_prompt>
     """
 
@@ -227,7 +187,6 @@ def judge_subtasks(metadata: TaskMetadata, subtasks: SubtaskMetadata) -> Subtask
         ]
     )
 
-    import json
     try:
         content = response.choices[0].message.content.strip()
         return SubtaskJudgment(**json.loads(content))
@@ -236,6 +195,7 @@ def judge_subtasks(metadata: TaskMetadata, subtasks: SubtaskMetadata) -> Subtask
             judgment="fail",
             reason="Subtask judgment failed: unable to parse subtask judgment response."
         )
+
 def save_task_to_db(task: str, subtasks: Optional[List[str]] = None):
     subtasks = subtasks or []
     print(f"[SAVE] Task: {task}\n[SUBTASKS]\n" + chr(10).join(f"- {s}" for s in subtasks))
@@ -301,13 +261,16 @@ def ask_clarifying_questions(questions: List[str]) -> dict:
 
 def create_task(task: str, subtasks: Optional[List[str]] = None) -> dict:
     """
-    Create a new task with optional subtasks. Currently a stub.
-    TODO: Implement task creation logic
+    Create a new task with optional subtasks.
+    Currently just logs the task and subtasks.
+    TODO: Implement actual task storage
     """
+    subtasks = subtasks or []
+    print(f"[SAVE] Task: {task}\n[SUBTASKS]\n" + chr(10).join(f"- {s}" for s in subtasks))
     return {
-        "status": "created",
+        "status": "saved",
         "task": task,
-        "subtasks": subtasks or []
+        "subtasks": subtasks
     }
 
 # The following functions are stubs for the v2 task agent
@@ -318,6 +281,7 @@ def create_clarifying_questions(task: str) -> dict:
     return {
         "questions": [f"What is the purpose of {subtask}?" for subtask in subtasks]
     }
+
 def receive_clarification_feedback(feedback: str, subtask: str) -> dict:
     """
     Receive feedback on a clarification question.
@@ -325,3 +289,129 @@ def receive_clarification_feedback(feedback: str, subtask: str) -> dict:
     return {
         "feedback": feedback
     }
+
+def generate_task_clarification_prompt(metadata, judgment, context_type: str) -> str:
+    """
+    Generate a human-friendly prompt for task/subtask clarification.
+    Uses concerns and questions from metadata to create a clear message.
+    """
+    concerns = metadata.concerns if metadata.concerns else []
+    questions = metadata.questions if metadata.questions else []
+    
+    prompt = f"I need some clarification about your {context_type}.\n\n"
+    
+    if concerns:
+        prompt += "I have some concerns:\n"
+        for concern in concerns:
+            prompt += f"- {concern}\n"
+        prompt += "\n"
+    
+    if questions:
+        prompt += "Could you please clarify:\n"
+        for question in questions:
+            prompt += f"- {question}\n"
+    
+    if not concerns and not questions:
+        prompt += f"Could you please provide more details about your {context_type}?\n"
+    
+    return prompt
+
+def retry_task_with_feedback(state) -> TaskMetadata:
+    """
+    Use LLM to refine the task based on user feedback.
+    """
+    client = get_client()
+
+    system_msg = """
+    <system_prompt>
+        You are an expert task manager assistant.
+        Your job is to refine the task based on the user's feedback.
+        Consider the feedback carefully and update the task accordingly.
+        Assess your confidence in the refined task, list any remaining concerns,
+        and generate any additional clarification questions if needed.
+
+        Always respond using the following JSON format:
+        {
+        "task": <string>,
+        "confidence": <float between 0 and 1>,
+        "concerns": [<string>, ...],
+        "questions": [<string>, ...]
+        }
+    </system_prompt>
+    """
+
+    user_prompt = f"""
+    <user_prompt>
+        <original_task>{state.task_metadata.task}</original_task>
+        <user_feedback>{state.user_feedback}</user_feedback>
+    </user_prompt>
+    """
+
+    response = client.chat.completions.create(
+        model=DEFAULT_MODEL,
+        messages=[
+            {"role": "system", "content": system_msg},
+            {"role": "user", "content": user_prompt}
+        ]
+    )
+
+    try:
+        content = response.choices[0].message.content.strip()
+        return TaskMetadata(**json.loads(content))
+    except Exception as e:
+        return TaskMetadata(
+            task=state.task_metadata.task,
+            confidence=0.0,
+            concerns=["Unable to parse task refinement response"],
+            questions=[]
+        )
+
+def retry_subtasks_with_feedback(state) -> SubtaskMetadata:
+    """
+    Use LLM to refine subtasks based on user feedback.
+    """
+    client = get_client()
+
+    system_msg = """
+    <system_prompt>
+        You are an expert task planning assistant.
+        Your job is to refine the subtasks based on the user's feedback.
+        Consider the feedback carefully and update the subtasks accordingly.
+        Assess your confidence in the refined subtasks, list any remaining concerns,
+        and generate any additional clarification questions if needed.
+        
+        Always respond using the following JSON format:
+        {
+        "subtasks": [<string>, ...],
+        "confidence": <float>,
+        "concerns": [<string>, ...],
+        "questions": [<string>, ...]
+        }
+    </system_prompt>
+    """
+
+    user_prompt = f"""
+    <user_prompt>
+        <task>{state.task_metadata.task}</task>
+        <user_feedback>{state.user_feedback}</user_feedback>
+    </user_prompt>
+    """
+
+    response = client.chat.completions.create(
+        model=DEFAULT_MODEL,
+        messages=[
+            {"role": "system", "content": system_msg},
+            {"role": "user", "content": user_prompt}
+        ]
+    )
+
+    try:
+        content = response.choices[0].message.content.strip()
+        return SubtaskMetadata(**json.loads(content))
+    except Exception:
+        return SubtaskMetadata(
+            subtasks=[],
+            confidence=0.0,
+            concerns=["Unable to parse subtask refinement response"],
+            questions=[]
+        )

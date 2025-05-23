@@ -1,5 +1,16 @@
-from backend.graphs.task_agent import TaskAgentState, extract_task_node, generate_subtasks_node, judge_subtasks_node, ask_to_subtask_node
-from backend.types import TaskMetadata, SubtaskMetadata, JudgmentType, SubtaskDecision
+from backend.graphs.task_agent import (
+    TaskAgentState, 
+    extract_task_node, 
+    generate_subtasks_node, 
+    judge_subtasks_node, 
+    ask_to_subtask_node,
+    ask_about_task_node,
+    retry_task_node,
+    ask_about_subtasks_node,
+    retry_subtasks_node,
+    judge_task_node
+)
+from backend.types import TaskMetadata, SubtaskMetadata, JudgmentType, SubtaskDecision, TaskJudgment, SubtaskJudgment
 from unittest.mock import Mock
 from langgraph.errors import GraphInterrupt
 import pytest
@@ -207,4 +218,242 @@ def test_ask_to_subtask_node_clears_user_feedback():
     )
     result = ask_to_subtask_node(state)
     assert result.user_feedback == ""
-    assert result.subtask_decision.value == "yes" 
+    assert result.subtask_decision.value == "yes"
+
+def test_ask_to_subtask_node_prompt_sequence():
+    """Test that ask_to_subtask_node shows the correct prompts in sequence."""
+    state = TaskAgentState()
+    
+    # First prompt should be simple
+    with pytest.raises(GraphInterrupt) as exc_info:
+        ask_to_subtask_node(state)
+    assert str(exc_info.value) == "Interrupt(value='Would you like help breaking this task into subtasks? (yes/no)', resumable=True, ns=None)"
+    assert state.subtask_decision.retries == 1
+    
+    # Second prompt should include the "Sorry" message
+    with pytest.raises(GraphInterrupt) as exc_info:
+        ask_to_subtask_node(state)
+    assert str(exc_info.value) == "Interrupt(value='Sorry, I was unable to determine if that was a yes or a no.\\n\\nWould you like help breaking this task into subtasks? (yes/no)', resumable=True, ns=None)"
+    assert state.subtask_decision.retries == 2
+    
+    # Third attempt should default to "no"
+    result = ask_to_subtask_node(state)
+    assert result.subtask_decision.value == "no"
+    assert result.subtask_decision.retries == 3
+
+def test_ask_about_task_node_first_run(mock_openai):
+    mock_openai.chat.completions.create.return_value.choices = [
+        Mock(message=Mock(content="Please clarify which dishes need to be done"))
+    ]
+    state = TaskAgentState(
+        task_metadata=TaskMetadata(
+            task="do the dishes",
+            confidence=0.5,
+            concerns=["Task is vague"],
+            questions=["Which dishes?"]
+        ),
+        task_judgment=TaskJudgment(
+            judgment=JudgmentType.FAIL,
+            reason="Task is too vague"
+        )
+    )
+    with pytest.raises(GraphInterrupt) as exc_info:
+        ask_about_task_node(state)
+    assert "I need some clarification about your task" in str(exc_info.value)
+    assert "Task is vague" in str(exc_info.value)
+    assert "Which dishes?" in str(exc_info.value)
+    assert state.user_feedback is None
+
+def test_ask_about_task_node_resume():
+    state = TaskAgentState(
+        task_metadata=TaskMetadata(
+            task="do the dishes",
+            confidence=0.5,
+            concerns=["Task is vague"],
+            questions=["Which dishes?"]
+        ),
+        task_judgment=TaskJudgment(
+            judgment=JudgmentType.FAIL,
+            reason="Task is too vague"
+        ),
+        user_feedback="I mean all the dishes in the sink"
+    )
+    result = ask_about_task_node(state)
+    assert result.user_feedback == "I mean all the dishes in the sink"
+
+def test_ask_about_subtasks_node_first_run(mock_openai):
+    mock_openai.chat.completions.create.return_value.choices = [
+        Mock(message=Mock(content="Please clarify what you mean by 'put away'"))
+    ]
+    state = TaskAgentState(
+        task_metadata=TaskMetadata(
+            task="do the dishes",
+            confidence=0.9,
+            concerns=[],
+            questions=[]
+        ),
+        subtask_metadata=SubtaskMetadata(
+            subtasks=["Fill sink", "Scrub", "Rinse"],
+            confidence=0.5,
+            concerns=["Unclear where to put dishes"],
+            questions=["Where should the dishes go?"]
+        ),
+        subtask_judgment=SubtaskJudgment(
+            judgment=JudgmentType.FAIL,
+            reason="Subtasks are incomplete"
+        )
+    )
+    with pytest.raises(GraphInterrupt) as exc_info:
+        ask_about_subtasks_node(state)
+    assert "I need some clarification about your subtasks" in str(exc_info.value)
+    assert "Unclear where to put dishes" in str(exc_info.value)
+    assert "Where should the dishes go?" in str(exc_info.value)
+    assert state.user_feedback is None
+
+def test_ask_about_subtasks_node_resume():
+    state = TaskAgentState(
+        task_metadata=TaskMetadata(
+            task="do the dishes",
+            confidence=0.9,
+            concerns=[],
+            questions=[]
+        ),
+        subtask_metadata=SubtaskMetadata(
+            subtasks=["Fill sink", "Scrub", "Rinse"],
+            confidence=0.5,
+            concerns=["Unclear where to put dishes"],
+            questions=["Where should the dishes go?"]
+        ),
+        subtask_judgment=SubtaskJudgment(
+            judgment=JudgmentType.FAIL,
+            reason="Subtasks are incomplete"
+        ),
+        user_feedback="Put them in the cabinet above the sink"
+    )
+    result = ask_about_subtasks_node(state)
+    assert result.user_feedback == "Put them in the cabinet above the sink"
+
+def test_retry_task_node(mock_openai):
+    mock_openai.chat.completions.create.return_value.choices = [
+        Mock(message=Mock(content='{"task": "wash all dishes in the sink", "confidence": 0.9, "concerns": [], "questions": []}'))
+    ]
+    state = TaskAgentState(
+        task_metadata=TaskMetadata(
+            task="do the dishes",
+            confidence=0.5,
+            concerns=["Task is vague"],
+            questions=["Which dishes?"]
+        ),
+        user_feedback="I mean all the dishes in the sink"
+    )
+    result = retry_task_node(state)
+    assert isinstance(result.task_metadata, TaskMetadata)
+    assert "wash all dishes in the sink" in result.task_metadata.task.lower()
+    assert result.task_metadata.confidence == 0.9
+    assert result.task_metadata.concerns == []
+    assert result.task_metadata.questions == []
+    assert result.user_feedback is None
+
+def test_retry_subtasks_node(mock_openai):
+    mock_openai.chat.completions.create.return_value.choices = [
+        Mock(message=Mock(content='''{
+            "subtasks": [
+                "Fill sink with hot water and soap",
+                "Scrub all dishes in the sink",
+                "Rinse with clean water",
+                "Dry and put in cabinet"
+            ],
+            "confidence": 0.9,
+            "concerns": [],
+            "questions": []
+        }'''))
+    ]
+    state = TaskAgentState(
+        task_metadata=TaskMetadata(
+            task="do the dishes",
+            confidence=0.9,
+            concerns=[],
+            questions=[],
+            user_feedback="Put them in the cabinet"
+        ),
+        subtask_metadata=SubtaskMetadata(
+            subtasks=["Fill sink", "Scrub", "Rinse"],
+            confidence=0.5,
+            concerns=["Unclear where to put dishes"],
+            questions=["Where should the dishes go?"]
+        )
+    )
+    result = retry_subtasks_node(state)
+    assert isinstance(result.subtask_metadata, SubtaskMetadata)
+    assert len(result.subtask_metadata.subtasks) > 0
+    assert any("put in cabinet" in subtask.lower() for subtask in result.subtask_metadata.subtasks)
+    assert result.subtask_metadata.confidence == 0.9
+    assert result.subtask_metadata.concerns == []
+    assert result.subtask_metadata.questions == []
+    assert result.user_feedback is None
+
+def test_judge_task_node_retry_behavior(mock_openai):
+    """Test that judge_task_node properly tracks retries and forces pass after max retries."""
+    mock_openai.chat.completions.create.return_value.choices = [
+        Mock(message=Mock(content='{"judgment": "fail", "reason": "Task is too vague"}'))
+    ]
+    state = TaskAgentState(
+        task_metadata=TaskMetadata(
+            task="do the dishes",
+            confidence=0.5,
+            concerns=["Task is vague"],
+            questions=["Which dishes?"]
+        )
+    )
+    
+    # First fail
+    result = judge_task_node(state)
+    assert result.task_judgment.judgment == JudgmentType.FAIL
+    assert result.task_judgment_retry.retries == 1
+    
+    # Second fail
+    result = judge_task_node(state)
+    assert result.task_judgment.judgment == JudgmentType.FAIL
+    assert result.task_judgment_retry.retries == 2
+    
+    # Third fail should force pass
+    result = judge_task_node(state)
+    assert result.task_judgment.judgment == JudgmentType.PASS
+    assert "Max retries reached" in result.task_judgment.reason
+    assert result.task_judgment_retry.retries == 3
+
+def test_judge_subtasks_node_retry_behavior(mock_openai):
+    """Test that judge_subtasks_node properly tracks retries and forces pass after max retries."""
+    mock_openai.chat.completions.create.return_value.choices = [
+        Mock(message=Mock(content='{"judgment": "fail", "reason": "Subtasks are incomplete"}'))
+    ]
+    state = TaskAgentState(
+        task_metadata=TaskMetadata(
+            task="do the dishes",
+            confidence=0.9,
+            concerns=[],
+            questions=[]
+        ),
+        subtask_metadata=SubtaskMetadata(
+            subtasks=["Fill sink", "Scrub", "Rinse"],
+            confidence=0.5,
+            concerns=["Unclear where to put dishes"],
+            questions=["Where should the dishes go?"]
+        )
+    )
+    
+    # First fail
+    result = judge_subtasks_node(state)
+    assert result.subtask_judgment.judgment == JudgmentType.FAIL
+    assert result.subtask_judgment_retry.retries == 1
+    
+    # Second fail
+    result = judge_subtasks_node(state)
+    assert result.subtask_judgment.judgment == JudgmentType.FAIL
+    assert result.subtask_judgment_retry.retries == 2
+    
+    # Third fail should force pass
+    result = judge_subtasks_node(state)
+    assert result.subtask_judgment.judgment == JudgmentType.PASS
+    assert "Max retries reached" in result.subtask_judgment.reason
+    assert result.subtask_judgment_retry.retries == 3 
