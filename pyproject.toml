@@ -6,7 +6,7 @@ authors = [
     { name = "langchain-ai" }
 ]
 packages = [
-    { include = "my_agent" },
+    { include = "backend" }
 ]
 requires-python = ">=3.11,<3.13"
 

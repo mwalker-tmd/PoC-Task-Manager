@@ -3,7 +3,7 @@ from openai import OpenAI
 import os
 from dotenv import load_dotenv
 import json
-from backend.types import TaskMetadata, TaskJudgment, SubtaskMetadata, SubtaskJudgment, SubtaskDecision
+from backend.types import TaskMetadata, TaskJudgment, SubtaskMetadata, SubtaskJudgment
 
 # Load environment variables from .env file
 load_dotenv()
@@ -250,15 +250,6 @@ def generate_subtasks(metadata: TaskMetadata) -> SubtaskMetadata:
             questions=[]
         )
 
-def ask_clarifying_questions(questions: List[str]) -> dict:
-    """
-    Present clarifying questions to the user. Currently a stub.
-    TODO: Implement UI interaction for asking questions
-    """
-    return {
-        "updated_input": "User's response to questions"  # Placeholder response
-    }
-
 def create_task(task: str, subtasks: Optional[List[str]] = None) -> dict:
     """
     Create a new task with optional subtasks.
@@ -271,23 +262,6 @@ def create_task(task: str, subtasks: Optional[List[str]] = None) -> dict:
         "status": "saved",
         "task": task,
         "subtasks": subtasks
-    }
-
-# The following functions are stubs for the v2 task agent
-def create_clarifying_questions(task: str) -> dict:    
-    """
-    Create clarifying questions for a subtask.
-    """
-    return {
-        "questions": [f"What is the purpose of {subtask}?" for subtask in subtasks]
-    }
-
-def receive_clarification_feedback(feedback: str, subtask: str) -> dict:
-    """
-    Receive feedback on a clarification question.
-    """
-    return {
-        "feedback": feedback
     }
 
 def generate_task_clarification_prompt(metadata, judgment, context_type: str) -> str:
