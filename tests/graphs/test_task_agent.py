@@ -8,9 +8,10 @@ from backend.graphs.task_agent import (
     retry_task_node,
     ask_about_subtasks_node,
     retry_subtasks_node,
-    judge_task_node
+    judge_task_node,
+    process_subtask_decision_node
 )
-from backend.types import TaskMetadata, SubtaskMetadata, JudgmentType, SubtaskDecision, TaskJudgment, SubtaskJudgment
+from backend.types import TaskMetadata, SubtaskMetadata, JudgmentType, SubtaskDecision, TaskJudgment, SubtaskJudgment, UserFeedbackRetry
 from unittest.mock import Mock
 from langgraph.errors import GraphInterrupt
 import pytest
@@ -179,67 +180,108 @@ def test_judge_subtasks_node_low_confidence(mock_openai):
     assert "confidence" in result.subtask_judgment.reason.lower()
     assert "unclear" in result.subtask_judgment.reason.lower()
 
-def test_ask_to_subtask_node_first_prompt():
+def test_ask_to_subtask_node_initial_prompt():
+    """Test the initial prompt when no decision exists."""
     state = TaskAgentState()
     with pytest.raises(GraphInterrupt) as exc_info:
         ask_to_subtask_node(state)
     assert "Would you like help breaking this task into subtasks?" in str(exc_info.value)
-    assert state.subtask_decision.retries == 1
+    assert state.subtask_decision.user_feedback_retry.retries == 0
 
-def test_ask_to_subtask_node_retry():
-    state = TaskAgentState(subtask_decision=SubtaskDecision(value=None, retries=1))
+def test_ask_to_subtask_node_retry_prompt():
+    """Test the retry prompt with the 'Sorry' message."""
+    state = TaskAgentState(
+        subtask_decision=SubtaskDecision(
+            value=None,
+            user_feedback_retry=UserFeedbackRetry()
+        )
+    )
     with pytest.raises(GraphInterrupt) as exc_info:
         ask_to_subtask_node(state)
     assert "Sorry, I was unable to determine" in str(exc_info.value)
-    assert state.subtask_decision.retries == 2
+    assert state.subtask_decision.user_feedback_retry.retries == 1
 
-def test_ask_to_subtask_node_max_retries():
-    state = TaskAgentState(subtask_decision=SubtaskDecision(value=None, retries=2))
-    result = ask_to_subtask_node(state)
-    assert result.subtask_decision.value == "no"
-    assert result.subtask_decision.retries == 3
-
-def test_ask_to_subtask_node_with_yes():
-    state = TaskAgentState(subtask_decision=SubtaskDecision(value="yes", retries=0))
-    result = ask_to_subtask_node(state)
-    assert result.subtask_decision.value == "yes"
-    assert result.subtask_decision.retries == 0
-
-def test_ask_to_subtask_node_with_no():
-    state = TaskAgentState(subtask_decision=SubtaskDecision(value="no", retries=0))
-    result = ask_to_subtask_node(state)
-    assert result.subtask_decision.value == "no"
-    assert result.subtask_decision.retries == 0
-
-def test_ask_to_subtask_node_clears_user_feedback():
+def test_ask_to_subtask_node_existing_decision():
+    """Test that an existing valid decision is preserved."""
     state = TaskAgentState(
-        subtask_decision=SubtaskDecision(value="yes", retries=0),
+        subtask_decision=SubtaskDecision(
+            value="yes",
+            user_feedback_retry=UserFeedbackRetry()
+        ),
         user_feedback="some feedback"
     )
-    result = ask_to_subtask_node(state)
-    assert result.user_feedback == ""
-    assert result.subtask_decision.value == "yes"
+    with pytest.raises(GraphInterrupt) as exc_info:
+        ask_to_subtask_node(state)
+    assert "Would you like help breaking this task into subtasks?" in str(exc_info.value)
+    assert state.subtask_decision.user_feedback_retry.retries == 1
 
-def test_ask_to_subtask_node_prompt_sequence():
-    """Test that ask_to_subtask_node shows the correct prompts in sequence."""
-    state = TaskAgentState()
-    
-    # First prompt should be simple
-    with pytest.raises(GraphInterrupt) as exc_info:
-        ask_to_subtask_node(state)
-    assert str(exc_info.value) == "Interrupt(value='Would you like help breaking this task into subtasks? (yes/no)', resumable=True, ns=None)"
-    assert state.subtask_decision.retries == 1
-    
-    # Second prompt should include the "Sorry" message
-    with pytest.raises(GraphInterrupt) as exc_info:
-        ask_to_subtask_node(state)
-    assert str(exc_info.value) == "Interrupt(value='Sorry, I was unable to determine if that was a yes or a no.\\n\\nWould you like help breaking this task into subtasks? (yes/no)', resumable=True, ns=None)"
-    assert state.subtask_decision.retries == 2
-    
-    # Third attempt should default to "no"
-    result = ask_to_subtask_node(state)
-    assert result.subtask_decision.value == "no"
-    assert result.subtask_decision.retries == 3
+def test_process_subtask_decision_node_valid_yes():
+    """Test processing various valid 'yes' responses."""
+    valid_yes_responses = ['yes', 'YES', 'Yes', 'y', 'Y', 'true', 'True', 'TRUE', 't', 'T', '1', 'on']
+    for response in valid_yes_responses:
+        state = TaskAgentState(
+            subtask_decision=SubtaskDecision(
+                value=None,
+                user_feedback_retry=UserFeedbackRetry()
+            ),
+            user_feedback=response
+        )
+        result = process_subtask_decision_node(state)
+        assert result.subtask_decision.value == "yes"
+        assert result.user_feedback is None
+
+def test_process_subtask_decision_node_valid_no():
+    """Test processing various valid 'no' responses."""
+    valid_no_responses = ['no', 'NO', 'No', 'n', 'N', 'false', 'False', 'FALSE', 'f', 'F', '0', 'off']
+    for response in valid_no_responses:
+        state = TaskAgentState(
+            subtask_decision=SubtaskDecision(
+                value=None,
+                user_feedback_retry=UserFeedbackRetry()
+            ),
+            user_feedback=response
+        )
+        result = process_subtask_decision_node(state)
+        assert result.subtask_decision.value == "no"
+        assert result.user_feedback is None
+
+def test_process_subtask_decision_node_invalid_response():
+    """Test processing an invalid response."""
+    state = TaskAgentState(
+        subtask_decision=SubtaskDecision(
+            value=None,
+            user_feedback_retry=UserFeedbackRetry(retries=3)
+        ),
+        user_feedback="maybe"
+    )
+    result = process_subtask_decision_node(state)
+    assert result.subtask_decision.value == "no"  # Should default to no at max retries
+    assert result.user_feedback is None
+
+def test_process_subtask_decision_node_invalid_response_below_max_retries():
+    """Test processing an invalid response when below max retries."""
+    state = TaskAgentState(
+        subtask_decision=SubtaskDecision(
+            value=None,
+            user_feedback_retry=UserFeedbackRetry(retries=1)
+        ),
+        user_feedback="maybe"
+    )
+    result = process_subtask_decision_node(state)
+    assert result.subtask_decision.value is None  # Should not set value when below max retries
+    assert result.user_feedback is None
+
+def test_process_subtask_decision_node_no_feedback():
+    """Test processing when no feedback is present."""
+    state = TaskAgentState(
+        subtask_decision=SubtaskDecision(
+            value=None,
+            user_feedback_retry=UserFeedbackRetry()
+        )
+    )
+    result = process_subtask_decision_node(state)
+    assert result.subtask_decision.value is None
+    assert result.user_feedback is None
 
 def test_ask_about_task_node_first_run(mock_openai):
     mock_openai.chat.completions.create.return_value.choices = [
