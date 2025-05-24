@@ -61,34 +61,33 @@ def judge_task_node(state: TaskAgentState) -> TaskAgentState:
     
     return state
 
+def init_subtask_decision_node(state: TaskAgentState) -> TaskAgentState:
+    if not state.subtask_decision:
+        state.subtask_decision = SubtaskDecision(value=None, user_feedback_retry=UserFeedbackRetry())
+    return state
+
 def ask_to_subtask_node(state: TaskAgentState) -> TaskAgentState:
     """
     Pause execution and ask the user if they want help breaking the task into subtasks.
     Retries up to 2 times before defaulting to "no".
-    
-    Control flow:
-    1. First run:
-       - Initializes subtask_decision if needed
-       - Raises GraphInterrupt to ask user
-    2. Resume run:
-       - Processes user_feedback to determine yes/no
-       - If unclear, retries up to 3 times
-       - Defaults to "no" after max retries
     """
-    if state.subtask_decision is None:
-        state.subtask_decision = SubtaskDecision(value=None, user_feedback_retry=UserFeedbackRetry())
+    if state.subtask_decision.user_feedback_retry.retries == 0:
+        print("ask_to_subtask_node: First Pass")
         prompt_message = "Would you like help breaking this task into subtasks? (yes/no)"
     else:
+        print("ask_to_subtask_node: Iterative Pass")
         state.subtask_decision.user_feedback_retry.retries += 1
         prompt_message = "Sorry, I was unable to determine if that was a yes or a no.\n\n" + \
             "Would you like help breaking this task into subtasks? (yes/no)"
     
-    raise GraphInterrupt(
-        Interrupt(
-            value=prompt_message,
-            resumable=True
-        )
-    )
+    if state.user_feedback is None:
+        print("ask_to_subtask_node: raising GraphInterrupt")
+        raise GraphInterrupt((
+            Interrupt(
+                value=prompt_message,
+                resumable=True
+            ),
+        ))
 
 def process_subtask_decision_node(state: TaskAgentState) -> TaskAgentState:
     """
@@ -159,7 +158,6 @@ def ask_about_task_node(state: TaskAgentState) -> TaskAgentState:
        - Returns state with user feedback for processing
     """
     if state.user_feedback is None:
-        state.user_feedback = None
         prompt = generate_task_clarification_prompt(state.task_metadata, state.task_judgment, "task")
         raise GraphInterrupt(
             Interrupt(
@@ -167,6 +165,8 @@ def ask_about_task_node(state: TaskAgentState) -> TaskAgentState:
                 resumable=True
             )
         )
+    else:
+        state.task_judgment = None
     return state
 
 def retry_task_node(state: TaskAgentState) -> TaskAgentState:
@@ -210,6 +210,7 @@ builder = StateGraph(TaskAgentState)
 
 builder.add_node("extract_task", RunnableLambda(extract_task_node))
 builder.add_node("judge_task", RunnableLambda(judge_task_node))
+builder.add_node("init_subtask_decision", RunnableLambda(init_subtask_decision_node))
 builder.add_node("ask_to_subtask", RunnableLambda(ask_to_subtask_node))
 builder.add_node("process_subtask_decision", RunnableLambda(process_subtask_decision_node))
 builder.add_node("ask_about_task", RunnableLambda(ask_about_task_node))
@@ -225,12 +226,13 @@ builder.set_entry_point("extract_task")
 # Graph edges
 builder.add_edge("extract_task", "judge_task")
 builder.add_conditional_edges("judge_task", lambda s: s.task_judgment.judgment.value, {
-    JudgmentType.PASS.value: "ask_to_subtask",
+    JudgmentType.PASS.value: "init_subtask_decision",
     JudgmentType.FAIL.value: "ask_about_task"
 })
 builder.add_edge("ask_about_task", "retry_task")
 builder.add_edge("retry_task", "judge_task")
 
+builder.add_edge("init_subtask_decision", "ask_to_subtask")
 builder.add_edge("ask_to_subtask", "process_subtask_decision")
 builder.add_conditional_edges("process_subtask_decision", lambda s: s.subtask_decision.value, {
     "yes": "generate_subtasks",
