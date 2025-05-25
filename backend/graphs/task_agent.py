@@ -145,9 +145,9 @@ def ask_about_task_node(state: TaskAgentState) -> TaskAgentState:
         prompt_message = generate_task_clarification_prompt(state.task_metadata, state.task_judgment, "task")
         user_input = interrupt({"prompt": prompt_message})
         logger.debug("ask_about_task_node: user_input = %s", user_input)
+        state.user_feedback = user_input
     
     state.task_judgment = None
-    # state.user_feedback = user_input
     logger.debug("ask_about_task_node: user_feedback = %s", state.user_feedback)
     logger.debug("Exiting ask_about_task_node ...")
     return state
