@@ -95,6 +95,8 @@ def ask_to_subtask_node(state: TaskAgentState) -> TaskAgentState:
         except ValueError:
             logger.debug("ask_to_subtask_node: Invalid input: %s", user_input)
             state.subtask_decision.user_feedback_retry.retries += 1
+            if state.subtask_decision.user_feedback_retry.retries >= state.subtask_decision.user_feedback_retry.max_retries:
+                state.subtask_decision.value = "no"
             continue
         break
     return state
@@ -140,12 +142,12 @@ def ask_about_task_node(state: TaskAgentState) -> TaskAgentState:
     """
     logger.debug("Entering ask_about_task_node ...")
     if state.user_feedback is None:
-        prompt = generate_task_clarification_prompt(state.task_metadata, state.task_judgment, "task")
-        user_input = interrupt({"prompt": prompt})
+        prompt_message = generate_task_clarification_prompt(state.task_metadata, state.task_judgment, "task")
+        user_input = interrupt({"prompt": prompt_message})
         logger.debug("ask_about_task_node: user_input = %s", user_input)
     
     state.task_judgment = None
-    state.user_feedback = user_input
+    # state.user_feedback = user_input
     logger.debug("ask_about_task_node: user_feedback = %s", state.user_feedback)
     logger.debug("Exiting ask_about_task_node ...")
     return state
@@ -180,11 +182,9 @@ def ask_about_subtasks_node(state: TaskAgentState) -> TaskAgentState:
         prompt = generate_task_clarification_prompt(state.subtask_metadata, state.subtask_judgment, "subtasks")
         user_input = interrupt({"prompt": prompt})
         logger.debug("ask_about_subtask_node: user_input = %s", user_input)
-    
+        state.user_feedback = user_input
+
     state.subtask_judgment = None
-    state.user_feedback = user_input
-    logger.debug("ask_about_subtask_node: user_feedback = %s", state.user_feedback)
-    logger.debug("Exiting ask_about_subtask_node ...")
     return state
 
 # Build the graph
