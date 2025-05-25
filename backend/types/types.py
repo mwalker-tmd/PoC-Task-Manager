@@ -20,6 +20,7 @@ class TaskMetadata(BaseModel):
     confidence: float
     concerns: List[str]
     questions: List[str]
+    is_subtaskable: bool = False
 
 class TaskJudgment(BaseModel):
     judgment: JudgmentType

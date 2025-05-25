@@ -7,6 +7,7 @@ from backend.types import TaskMetadata, SubtaskMetadata
 from fastapi.responses import JSONResponse
 from langgraph.errors import GraphInterrupt
 from fastapi.exceptions import RequestValidationError
+from backend.logger import set_log_level, get_log_level
 
 # A FastAPI app
 app = FastAPI()
@@ -21,6 +22,9 @@ class TaskResponse(BaseModel):
     message: Optional[str] = None
     needs_input: Optional[bool] = None
     prompt: Optional[str] = None
+
+class LogLevelRequest(BaseModel):
+    level: str
 
 @app.exception_handler(RequestValidationError)
 async def request_validation_exception_handler(request: Request, exc: RequestValidationError):
@@ -98,6 +102,20 @@ async def create_task(request: TaskRequest):
             status_code=500,
             detail="Internal server error while processing task"
         )
+
+@app.get("/api/log-level")
+async def get_log_level_endpoint():
+    """Get the current log level."""
+    return {"level": get_log_level()}
+
+@app.post("/api/log-level")
+async def set_log_level_endpoint(request: LogLevelRequest):
+    """Set the log level."""
+    try:
+        set_log_level(request.level)
+        return {"level": get_log_level()}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 # Create an MCP server from your FastAPI app
 mcp = FastMCP.from_fastapi(app=app)
