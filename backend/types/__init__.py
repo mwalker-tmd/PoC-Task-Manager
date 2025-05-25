@@ -6,7 +6,7 @@ from .types import (
     JudgmentType,
     SubtaskDecision,
     TaskAgentState,
-    JudgmentRetry
+    UserFeedbackRetry
 )
 
 __all__ = [
@@ -17,5 +17,5 @@ __all__ = [
     "JudgmentType",
     "SubtaskDecision",
     "TaskAgentState",
-    "JudgmentRetry"
+    "UserFeedbackRetry"
 ] 

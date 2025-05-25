@@ -2,10 +2,10 @@ from langgraph.graph import StateGraph, END
 from langgraph.graph.message import add_messages
 from langchain_core.runnables import RunnableLambda
 from typing import Optional, List
-from langgraph.errors import GraphInterrupt
-from langgraph.types import Interrupt
+from langgraph.types import interrupt, Command
+from langgraph.checkpoint.memory import InMemorySaver
 
-from backend.types import TaskMetadata, TaskJudgment, JudgmentType, SubtaskDecision, TaskAgentState, JudgmentRetry, SubtaskJudgment
+from backend.types import TaskMetadata, TaskJudgment, JudgmentType, SubtaskDecision, TaskAgentState, UserFeedbackRetry, SubtaskJudgment
 from backend.tools import (
     extract_task,
     judge_task,
@@ -16,6 +16,22 @@ from backend.tools import (
     retry_subtasks_with_feedback,
     generate_task_clarification_prompt
 )
+from backend.logger import logger
+
+def strtobool(val: str) -> bool:
+    """Convert a string representation of truth to true (1) or false (0).
+    
+    True values are 'y', 'yes', 't', 'true', 'on', and '1'.
+    False values are 'n', 'no', 'f', 'false', 'off', and '0'.
+    Raises ValueError if 'val' is anything else.
+    """
+    val = val.lower()
+    if val in ('y', 'yes', 't', 'true', 'on', '1'):
+        return True
+    elif val in ('n', 'no', 'f', 'false', 'off', '0'):
+        return False
+    else:
+        raise ValueError(f"invalid truth value {val}")
 
 # Node definitions
 def extract_task_node(state: TaskAgentState) -> TaskAgentState:
@@ -26,7 +42,7 @@ def extract_task_node(state: TaskAgentState) -> TaskAgentState:
 def judge_task_node(state: TaskAgentState) -> TaskAgentState:
     """Judge the task and track retry attempts."""
     if state.task_judgment_retry is None:
-        state.task_judgment_retry = JudgmentRetry()
+        state.task_judgment_retry = UserFeedbackRetry()
     
     result = judge_task(state.task_metadata)
     state.task_judgment = result
@@ -52,29 +68,39 @@ def ask_to_subtask_node(state: TaskAgentState) -> TaskAgentState:
     Retries up to 2 times before defaulting to "no".
     """
     if state.subtask_decision is None:
-        state.subtask_decision = SubtaskDecision(value=None, retries=0)
-        prompt_message = "Would you like help breaking this task into subtasks? (yes/no)"
-    else:
-        prompt_message = ("Sorry, I was unable to determine if that was a yes or a no.\n\n" 
-            "Would you like help breaking this task into subtasks? (yes/no)"
-        )
-    
-    if not state.subtask_decision.value:
-        state.subtask_decision.retries += 1
+        state.subtask_decision = SubtaskDecision(value=None, user_feedback_retry=UserFeedbackRetry())
 
-        if state.subtask_decision.retries >= 3:
-            state.subtask_decision.value = "no"
+    if state.task_metadata.is_subtaskable is False:
+        state.subtask_decision.value = "no"
+        return state
+
+    main_prompt = "Would you like help breaking this task into subtasks? (yes/no)"
+    while state.subtask_decision.value is None and \
+        state.subtask_decision.user_feedback_retry.retries < state.subtask_decision.user_feedback_retry.max_retries:
+        if state.subtask_decision.user_feedback_retry.retries == 0:
+            logger.debug("ask_to_subtask_node: First Pass")
+            prompt_message = main_prompt
         else:
-            raise GraphInterrupt(
-                Interrupt(
-                    value=prompt_message,
-                    resumable=True
-                )
-            )
-    
-    # Clear user feedback after processing
-    state.user_feedback = ""
+            logger.debug("ask_to_subtask_node: Iterative Pass")
+            prompt_message = "Sorry, I was unable to determine if that was a yes or a no.\n\n" + \
+                main_prompt
+        user_input = interrupt({"prompt": prompt_message})
+        logger.debug("ask_to_subtask_node: user_input = %s", user_input)
+
+        try:
+            if strtobool(user_input):
+                state.subtask_decision.value = "yes"
+            else:
+                state.subtask_decision.value = "no"
+        except ValueError:
+            logger.debug("ask_to_subtask_node: Invalid input: %s", user_input)
+            state.subtask_decision.user_feedback_retry.retries += 1
+            if state.subtask_decision.user_feedback_retry.retries >= state.subtask_decision.user_feedback_retry.max_retries:
+                state.subtask_decision.value = "no"
+            continue
+        break
     return state
+
 
 def generate_subtasks_node(state: TaskAgentState) -> TaskAgentState:
     result = generate_subtasks(state.task_metadata)
@@ -84,7 +110,7 @@ def generate_subtasks_node(state: TaskAgentState) -> TaskAgentState:
 def judge_subtasks_node(state: TaskAgentState) -> TaskAgentState:
     """Judge the subtasks and track retry attempts."""
     if state.subtask_judgment_retry is None:
-        state.subtask_judgment_retry = JudgmentRetry()
+        state.subtask_judgment_retry = UserFeedbackRetry()
     
     result = judge_subtasks(state.task_metadata, state.subtask_metadata)
     state.subtask_judgment = result
@@ -113,24 +139,17 @@ def ask_about_task_node(state: TaskAgentState) -> TaskAgentState:
     """
     Pause to ask the user for clarification after failed judgment.
     Uses concerns and questions to generate a human-friendly message.
-    
-    Control flow:
-    1. First run:
-       - Clears previous user feedback
-       - Generates clarification prompt
-       - Raises GraphInterrupt for HITL
-    2. Resume run:
-       - Returns state with user feedback for processing
     """
+    logger.debug("Entering ask_about_task_node ...")
     if state.user_feedback is None:
-        state.user_feedback = None
-        prompt = generate_task_clarification_prompt(state.task_metadata, state.task_judgment, "task")
-        raise GraphInterrupt(
-            Interrupt(
-                value=prompt,
-                resumable=True
-            )
-        )
+        prompt_message = generate_task_clarification_prompt(state.task_metadata, state.task_judgment, "task")
+        user_input = interrupt({"prompt": prompt_message})
+        logger.debug("ask_about_task_node: user_input = %s", user_input)
+        state.user_feedback = user_input
+    
+    state.task_judgment = None
+    logger.debug("ask_about_task_node: user_feedback = %s", state.user_feedback)
+    logger.debug("Exiting ask_about_task_node ...")
     return state
 
 def retry_task_node(state: TaskAgentState) -> TaskAgentState:
@@ -158,15 +177,14 @@ def ask_about_subtasks_node(state: TaskAgentState) -> TaskAgentState:
     Pause to ask the user for clarification about subtasks after failed judgment.
     Uses concerns and questions to generate a human-friendly message.
     """
+    logger.debug("Entering ask_about_subtask_node ...")
     if state.user_feedback is None:
-        state.user_feedback = None
         prompt = generate_task_clarification_prompt(state.subtask_metadata, state.subtask_judgment, "subtasks")
-        raise GraphInterrupt(
-            Interrupt(
-                value=prompt,
-                resumable=True
-            )
-        )
+        user_input = interrupt({"prompt": prompt})
+        logger.debug("ask_about_subtask_node: user_input = %s", user_input)
+        state.user_feedback = user_input
+
+    state.subtask_judgment = None
     return state
 
 # Build the graph
@@ -196,6 +214,8 @@ builder.add_edge("retry_task", "judge_task")
 
 builder.add_conditional_edges("ask_to_subtask", lambda s: s.subtask_decision.value, {
     "yes": "generate_subtasks",
+    "no": "create_task",
+    None: "ask_to_subtask"
 })
 builder.add_edge("generate_subtasks", "judge_subtasks")
 builder.add_conditional_edges("judge_subtasks", lambda s: s.subtask_judgment.judgment.value, {
@@ -207,4 +227,6 @@ builder.add_edge("retry_subtasks", "judge_subtasks")
 builder.add_edge("create_task", END)
 
 # Compile the graph
+#checkpointer = InMemorySaver()
+#graph = builder.compile(checkpointer=checkpointer)
 graph = builder.compile()

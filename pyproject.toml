@@ -6,7 +6,7 @@ authors = [
     { name = "langchain-ai" }
 ]
 packages = [
-    { include = "my_agent" },
+    { include = "backend" }
 ]
 requires-python = ">=3.11,<3.13"
 
@@ -36,3 +36,13 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["backend"]
+
+[tool.pytest.ini_options]
+# TEMPORARY: Filter Pydantic deprecation warnings from langgraph's internal use of model_fields
+# This warning appears because langgraph (v0.4.3) uses Pydantic's deprecated model_fields access
+# on instances instead of classes. This will be fixed in a future langgraph release.
+# TODO: Remove this filter when upgrading to a langgraph version that uses Pydantic v3's
+# recommended approach for accessing model fields.
+filterwarnings = [
+    "ignore::pydantic.PydanticDeprecatedSince211"
+]

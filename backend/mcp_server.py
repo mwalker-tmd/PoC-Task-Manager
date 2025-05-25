@@ -1,26 +1,121 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Request
 from fastmcp import FastMCP
-
+from pydantic import BaseModel, Field, ValidationError
+from typing import Optional, List
+from backend.graphs.task_agent import graph, TaskAgentState
+from backend.types import TaskMetadata, SubtaskMetadata
+from fastapi.responses import JSONResponse
+from langgraph.errors import GraphInterrupt
+from fastapi.exceptions import RequestValidationError
+from backend.logger import set_log_level, get_log_level
 
 # A FastAPI app
 app = FastAPI()
 
-@app.get("/items")
-def list_items():
-    return [{"id": 1, "name": "Item 1"}, {"id": 2, "name": "Item 2"}]
+class TaskRequest(BaseModel):
+    task: str = Field(..., min_length=1, description="The task to be processed")
 
-@app.get("/items/{item_id}")
-def get_item(item_id: int):
-    return {"id": item_id, "name": f"Item {item_id}"}
+class TaskResponse(BaseModel):
+    task: str
+    subtasks: Optional[List[str]] = None
+    status: str
+    message: Optional[str] = None
+    needs_input: Optional[bool] = None
+    prompt: Optional[str] = None
 
-@app.post("/items")
-def create_item(name: str):
-    return {"id": 3, "name": name}
+class LogLevelRequest(BaseModel):
+    level: str
 
-@app.post("/tasks")
-def create_task(task: str):
+@app.exception_handler(RequestValidationError)
+async def request_validation_exception_handler(request: Request, exc: RequestValidationError):
+    """Convert FastAPI request validation errors to 400 Bad Request."""
+    return JSONResponse(
+        status_code=400,
+        content={"detail": str(exc)}
+    )
 
-    return {"id": 3, "task": task}
+@app.exception_handler(ValidationError)
+async def validation_exception_handler(request: Request, exc: ValidationError):
+    """Convert Pydantic validation errors to 400 Bad Request."""
+    return JSONResponse(
+        status_code=400,
+        content={"detail": str(exc)}
+    )
+
+@app.post("/tasks", response_model=TaskResponse)
+async def create_task(request: TaskRequest):
+    """
+    Create a new task using the LangGraph task agent.
+    This will:
+    1. Extract and validate the task
+    2. Optionally break it into subtasks
+    3. Return the final task and subtasks
+    
+    If the graph needs user input, it will return a response with needs_input=True
+    and a prompt message that should be shown to the user.
+    """
+    try:
+        # Initialize the task agent state
+        state = TaskAgentState(input=request.task)
+        
+        # Run the task agent graph
+        result = await graph.ainvoke(state)
+        
+        # Extract task metadata from result
+        task_metadata = result.get("task_metadata")
+        if not task_metadata:
+            raise HTTPException(
+                status_code=400,
+                detail="Failed to extract task metadata"
+            )
+        
+        # Return the successful result
+        return TaskResponse(
+            task=task_metadata.task,
+            subtasks=result.get("subtask_metadata", {}).get("subtasks"),
+            status="success",
+            message="Task created successfully"
+        )
+        
+    except GraphInterrupt as e:
+        # This is not an error - the graph needs user input
+        return TaskResponse(
+            task=request.task,
+            status="pending",
+            needs_input=True,
+            prompt=str(e),
+            message="Additional information required"
+        )
+    except HTTPException:
+        # Re-raise HTTP exceptions
+        raise
+    except ValueError as e:
+        # Handle validation errors
+        raise HTTPException(
+            status_code=400,
+            detail=str(e)
+        )
+    except Exception as e:
+        # Log the error and return a 500
+        print(f"Error processing task: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail="Internal server error while processing task"
+        )
+
+@app.get("/api/log-level")
+async def get_log_level_endpoint():
+    """Get the current log level."""
+    return {"level": get_log_level()}
+
+@app.post("/api/log-level")
+async def set_log_level_endpoint(request: LogLevelRequest):
+    """Set the log level."""
+    try:
+        set_log_level(request.level)
+        return {"level": get_log_level()}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 # Create an MCP server from your FastAPI app
 mcp = FastMCP.from_fastapi(app=app)

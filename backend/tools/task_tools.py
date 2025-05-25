@@ -3,7 +3,7 @@ from openai import OpenAI
 import os
 from dotenv import load_dotenv
 import json
-from backend.types import TaskMetadata, TaskJudgment, SubtaskMetadata, SubtaskJudgment, SubtaskDecision
+from backend.types import TaskMetadata, TaskJudgment, SubtaskMetadata, SubtaskJudgment
 
 # Load environment variables from .env file
 load_dotenv()
@@ -31,15 +31,22 @@ def extract_task(state) -> TaskMetadata:
     system_msg = """
     <system_prompt>
         You are an expert task manager assistant.
-        Your job is to extract a single task from the user's input, assess how confident you are,
-        list any concerns, and, if you want clarification from the user, generate clarification questions.
+        Your job is to extract a single task from the user's input, then:
+        - assess how confident you are, 
+        - if the task has the potential to be decomposed into subtasks,
+        - list any concerns, 
+        - and, if you want clarification from the user, generate clarification questions.
+
+        NOTE: The user will have an opportunity to create subtasks later in the workflow if is_subtaskable is True. 
+          So regarding subtasks, you only need to decide whether the task is subtaskable or not.
 
         Always respond using the following JSON format:
         {
         "task": <string>,
         "confidence": <float between 0 and 1>,
         "concerns": [<string>, ...],
-        "questions": [<string>, ...]
+        "questions": [<string>, ...],
+        "is_subtaskable": <boolean>
         }
     </system_prompt>
     """
@@ -66,7 +73,8 @@ def extract_task(state) -> TaskMetadata:
             task=state.input.strip(),
             confidence=0.0,
             concerns=["Unable to parse task extraction response"],
-            questions=[]
+            questions=[],
+            is_subtaskable=False
         )
 
 def judge_task(metadata: TaskMetadata) -> TaskJudgment:
@@ -85,6 +93,9 @@ def judge_task(metadata: TaskMetadata) -> TaskJudgment:
         Consider the following:
         - Confidence score below 0.7 should make you cautious.
         - If concerns or clarification questions are present, it's more likely the task is vague.
+        - The user will have an opportunity to create subtasks later in the workflow if 
+          is_subtaskable is True. So regarding subtasks, you only need to judge if the assistant
+          made the right choice about whether the task is subtaskable or not.
         - However, you must use your own judgment to decide if the task can proceed or not.
 
         If the task is too ambiguous and no questions were suggested by the assistant, 
@@ -250,15 +261,6 @@ def generate_subtasks(metadata: TaskMetadata) -> SubtaskMetadata:
             questions=[]
         )
 
-def ask_clarifying_questions(questions: List[str]) -> dict:
-    """
-    Present clarifying questions to the user. Currently a stub.
-    TODO: Implement UI interaction for asking questions
-    """
-    return {
-        "updated_input": "User's response to questions"  # Placeholder response
-    }
-
 def create_task(task: str, subtasks: Optional[List[str]] = None) -> dict:
     """
     Create a new task with optional subtasks.
@@ -271,23 +273,6 @@ def create_task(task: str, subtasks: Optional[List[str]] = None) -> dict:
         "status": "saved",
         "task": task,
         "subtasks": subtasks
-    }
-
-# The following functions are stubs for the v2 task agent
-def create_clarifying_questions(task: str) -> dict:    
-    """
-    Create clarifying questions for a subtask.
-    """
-    return {
-        "questions": [f"What is the purpose of {subtask}?" for subtask in subtasks]
-    }
-
-def receive_clarification_feedback(feedback: str, subtask: str) -> dict:
-    """
-    Receive feedback on a clarification question.
-    """
-    return {
-        "feedback": feedback
     }
 
 def generate_task_clarification_prompt(metadata, judgment, context_type: str) -> str:
