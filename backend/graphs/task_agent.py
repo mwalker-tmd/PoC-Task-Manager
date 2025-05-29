@@ -131,7 +131,8 @@ def judge_subtasks_node(state: TaskAgentState) -> TaskAgentState:
     return state
 
 def create_task_node(state: TaskAgentState) -> TaskAgentState:
-    create_task(state.task_metadata.task, state.subtask_metadata.subtasks)
+    subtasks = state.subtask_metadata.subtasks if state.subtask_metadata else []
+    create_task(state.task_metadata.task, subtasks)
     state.confirmed = True
     return state
 
@@ -142,8 +143,9 @@ def ask_about_task_node(state: TaskAgentState) -> TaskAgentState:
     """
     logger.debug("Entering ask_about_task_node ...")
     if state.user_feedback is None:
-        prompt_message = generate_task_clarification_prompt(state.task_metadata, state.task_judgment, "task")
-        user_input = interrupt({"prompt": prompt_message})
+        user_message = generate_task_clarification_prompt(state.task_metadata, state.task_judgment, "task")
+        state.last_user_message = user_message
+        user_input = interrupt({"prompt": user_message})
         logger.debug("ask_about_task_node: user_input = %s", user_input)
         state.user_feedback = user_input
     
@@ -179,8 +181,9 @@ def ask_about_subtasks_node(state: TaskAgentState) -> TaskAgentState:
     """
     logger.debug("Entering ask_about_subtask_node ...")
     if state.user_feedback is None:
-        prompt = generate_task_clarification_prompt(state.subtask_metadata, state.subtask_judgment, "subtasks")
-        user_input = interrupt({"prompt": prompt})
+        user_message = generate_task_clarification_prompt(state.subtask_metadata, state.subtask_judgment, "subtasks")
+        state.last_user_message = user_message
+        user_input = interrupt({"prompt": user_message})
         logger.debug("ask_about_subtask_node: user_input = %s", user_input)
         state.user_feedback = user_input
 
