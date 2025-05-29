@@ -49,5 +49,6 @@ class TaskAgentState(BaseModel):
     subtask_metadata: Optional[SubtaskMetadata] = None
     subtask_judgment: Optional[SubtaskJudgment] = None
     subtask_judgment_retry: Optional[UserFeedbackRetry] = None
+    last_user_message: Optional[str] = None
     user_feedback: Optional[str] = None
     confirmed: bool = False

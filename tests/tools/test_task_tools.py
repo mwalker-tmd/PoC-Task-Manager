@@ -2,6 +2,7 @@ import pytest
 from unittest.mock import Mock, patch
 from backend.tools import task_tools
 from backend.types import TaskMetadata, TaskAgentState, TaskJudgment, SubtaskMetadata, JudgmentType
+from fastapi import HTTPException
 
 @pytest.fixture
 def mock_openai():
@@ -212,9 +213,7 @@ def test_retry_subtasks_with_feedback_basic(mock_openai):
     assert result.questions == []
 
 def test_retry_subtasks_with_feedback_error_handling(mock_openai):
-    mock_openai.chat.completions.create.return_value.choices = [
-        Mock(message=Mock(content="invalid json"))
-    ]
+    mock_openai.chat.completions.create.side_effect = Exception("Invalid JSON response")
     state = TaskAgentState(
         task_metadata=TaskMetadata(
             task="do the dishes",
@@ -224,12 +223,9 @@ def test_retry_subtasks_with_feedback_error_handling(mock_openai):
         ),
         user_feedback="Include drying and putting away"
     )
-    result = task_tools.retry_subtasks_with_feedback(state)
-    assert isinstance(result, SubtaskMetadata)
-    assert result.subtasks == []
-    assert result.confidence == 0.0
-    assert "Unable to parse subtask refinement response" in result.concerns
-    assert result.questions == []
+    with pytest.raises(HTTPException) as exc_info:
+        task_tools.retry_subtasks_with_feedback(state)
+    assert "retry_subtasks_with_feedback failed" in str(exc_info.value)
 
 def test_create_task_basic():
     result = task_tools.create_task("Do the dishes", ["Fill sink", "Scrub", "Rinse"])

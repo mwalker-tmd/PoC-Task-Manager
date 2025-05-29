@@ -368,7 +368,8 @@ def test_retry_subtasks_node(mock_openai):
                 "Fill sink with hot water and soap",
                 "Scrub all dishes in the sink",
                 "Rinse with clean water",
-                "Dry and put in cabinet"
+                "Dry dishes",
+                "Put them in the cabinet"
             ],
             "confidence": 0.9,
             "concerns": [],
@@ -392,8 +393,8 @@ def test_retry_subtasks_node(mock_openai):
     )
     result = retry_subtasks_node(state)
     assert isinstance(result.subtask_metadata, SubtaskMetadata)
-    assert len(result.subtask_metadata.subtasks) == 4
-    assert any("put in cabinet" in subtask.lower() for subtask in result.subtask_metadata.subtasks)
+    assert len(result.subtask_metadata.subtasks) == 5
+    assert "Put them in the cabinet" in result.subtask_metadata.subtasks
     assert result.subtask_metadata.confidence == 0.9
     assert result.subtask_metadata.concerns == []
     assert result.subtask_metadata.questions == []
