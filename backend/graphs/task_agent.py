@@ -223,11 +223,15 @@ builder.add_conditional_edges("judge_task", lambda s: s.task_judgment.judgment.v
 builder.add_edge("ask_about_task", "retry_task")
 builder.add_edge("retry_task", "judge_task")
 
-builder.add_conditional_edges("ask_to_subtask", lambda s: "yes" if s.user_wants_subtasks else "no", {
-    "yes": "generate_subtasks",
-    "no": "create_task",
-    None: "ask_to_subtask"
-})
+builder.add_conditional_edges(
+    "ask_to_subtask",
+    lambda s: "ask_to_subtask" if s.user_wants_subtasks is None else ("yes" if s.user_wants_subtasks else "no"),
+    {
+        "yes": "generate_subtasks",
+        "no": "create_task",
+        "ask_to_subtask": "ask_to_subtask"
+    }
+)
 builder.add_edge("generate_subtasks", "judge_subtasks")
 builder.add_conditional_edges("judge_subtasks", lambda s: s.subtask_judgment.judgment.value, {
     JudgmentType.PASS.value: "create_task",

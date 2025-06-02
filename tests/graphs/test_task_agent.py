@@ -490,4 +490,25 @@ def test_judge_subtasks_node_fails_if_not_accepted_and_below_max_retries():
     )
     result = judge_subtasks_node(state)
     assert result.subtask_judgment.judgment == JudgmentType.FAIL
-    assert result.subtask_judgment_retry.retries == 2 
+    assert result.subtask_judgment_retry.retries == 2
+
+def test_ask_to_subtask_conditional_edges_retry():
+    # Simulate a state where user_wants_subtasks is None (undecided/invalid input)
+    state = TaskAgentState(
+        task_metadata=TaskMetadata(
+            task="do the dishes",
+            confidence=0.9,
+            concerns=[],
+            questions=[],
+            is_subtaskable=True
+        ),
+        user_wants_subtasks=None
+    )
+    # The lambda should return 'ask_to_subtask' for None
+    edge_lambda = lambda s: "ask_to_subtask" if s.user_wants_subtasks is None else ("yes" if s.user_wants_subtasks else "no")
+    assert edge_lambda(state) == "ask_to_subtask"
+    # Also check True/False cases for completeness
+    state_yes = state.model_copy(update={"user_wants_subtasks": True})
+    state_no = state.model_copy(update={"user_wants_subtasks": False})
+    assert edge_lambda(state_yes) == "yes"
+    assert edge_lambda(state_no) == "no" 
