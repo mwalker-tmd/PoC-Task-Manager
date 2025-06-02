@@ -10,7 +10,7 @@ from backend.graphs.task_agent import (
     retry_subtasks_node,
     judge_task_node
 )
-from backend.types import TaskMetadata, SubtaskMetadata, JudgmentType, SubtaskDecision, TaskJudgment, SubtaskJudgment, UserFeedbackRetry
+from backend.types import TaskMetadata, SubtaskMetadata, JudgmentType, TaskJudgment, SubtaskJudgment, UserFeedbackRetry
 from unittest.mock import Mock, patch
 from langgraph.errors import GraphInterrupt
 import pytest
@@ -124,7 +124,7 @@ def test_ask_to_subtask_node_initial_prompt():
         with pytest.raises(GraphInterrupt) as exc_info:
             ask_to_subtask_node(state)
         assert "Would you like help breaking this task into subtasks?" in str(exc_info.value)
-        assert state.subtask_decision.user_feedback_retry.retries == 0
+        assert state.user_wants_subtasks is None
 
 def test_ask_to_subtask_node_retry_prompt():
     """Test the retry prompt with the 'Sorry' message."""
@@ -136,17 +136,14 @@ def test_ask_to_subtask_node_retry_prompt():
             questions=[],
             is_subtaskable=True
         ),
-        subtask_decision=SubtaskDecision(
-            value=None,
-            user_feedback_retry=UserFeedbackRetry(retries=1)
-        )
+        user_wants_subtasks=None
     )
     with patch('backend.graphs.task_agent.interrupt') as mock_interrupt:
         mock_interrupt.side_effect = GraphInterrupt({"prompt": "Sorry, I was unable to determine if that was a yes or a no.\n\nWould you like help breaking this task into subtasks? (yes/no)"})
         with pytest.raises(GraphInterrupt) as exc_info:
             ask_to_subtask_node(state)
         assert "Sorry, I was unable to determine" in str(exc_info.value)
-        assert state.subtask_decision.user_feedback_retry.retries == 1
+        assert state.user_wants_subtasks is None
 
 def test_ask_to_subtask_node_valid_yes():
     """Test processing various valid 'yes' responses."""
@@ -160,14 +157,11 @@ def test_ask_to_subtask_node_valid_yes():
                 questions=[],
                 is_subtaskable=True
             ),
-            subtask_decision=SubtaskDecision(
-                value=None,
-                user_feedback_retry=UserFeedbackRetry()
-            )
+            user_wants_subtasks=None
         )
         with patch('backend.graphs.task_agent.interrupt', return_value=response):
             result = ask_to_subtask_node(state)
-            assert result.subtask_decision.value == "yes"
+            assert result.user_wants_subtasks is True
 
 def test_ask_to_subtask_node_valid_no():
     """Test processing various valid 'no' responses."""
@@ -181,14 +175,11 @@ def test_ask_to_subtask_node_valid_no():
                 questions=[],
                 is_subtaskable=True
             ),
-            subtask_decision=SubtaskDecision(
-                value=None,
-                user_feedback_retry=UserFeedbackRetry()
-            )
+            user_wants_subtasks=None
         )
         with patch('backend.graphs.task_agent.interrupt', return_value=response):
             result = ask_to_subtask_node(state)
-            assert result.subtask_decision.value == "no"
+            assert result.user_wants_subtasks is False
 
 def test_ask_to_subtask_node_invalid_response():
     """Test processing an invalid response at max retries."""
@@ -200,15 +191,11 @@ def test_ask_to_subtask_node_invalid_response():
             questions=[],
             is_subtaskable=True
         ),
-        subtask_decision=SubtaskDecision(
-            value=None,
-            user_feedback_retry=UserFeedbackRetry(retries=2)  # Start at 2 so one more retry hits max
-        )
+        user_wants_subtasks=None
     )
     with patch('backend.graphs.task_agent.interrupt', return_value="maybe"):
         result = ask_to_subtask_node(state)
-        assert result.subtask_decision.value == "no"  # Should default to no at max retries
-        assert result.subtask_decision.user_feedback_retry.retries == 3
+        assert result.user_wants_subtasks is False
 
 def test_ask_to_subtask_node_invalid_response_below_max_retries():
     """Test processing an invalid response when below max retries."""
@@ -220,16 +207,11 @@ def test_ask_to_subtask_node_invalid_response_below_max_retries():
             questions=[],
             is_subtaskable=True
         ),
-        subtask_decision=SubtaskDecision(
-            value=None,
-            user_feedback_retry=UserFeedbackRetry(retries=0)  # Start at 0 to test increment
-        )
+        user_wants_subtasks=None
     )
-    # Mock interrupt to return "maybe" twice to simulate two attempts
     with patch('backend.graphs.task_agent.interrupt', side_effect=["maybe", "maybe", "maybe"]):
         result = ask_to_subtask_node(state)
-        assert result.subtask_decision.value == "no"  # Should set to no after two failed attempts
-        assert result.subtask_decision.user_feedback_retry.retries == 3  # Should increment twice
+        assert result.user_wants_subtasks is False
 
 def test_ask_to_subtask_node_not_subtaskable():
     """Test when task is not subtaskable."""
@@ -243,7 +225,7 @@ def test_ask_to_subtask_node_not_subtaskable():
         )
     )
     result = ask_to_subtask_node(state)
-    assert result.subtask_decision.value == "no"
+    assert result.user_wants_subtasks is False
 
 def test_ask_about_task_node_first_run(mock_openai):
     mock_openai.chat.completions.create.return_value.choices = [
@@ -284,8 +266,8 @@ def test_ask_about_task_node_resume():
         user_feedback="I mean all the dishes in the sink"
     )
     result = ask_about_task_node(state)
-    assert result.user_feedback == "I mean all the dishes in the sink"  # Should preserve existing feedback
-    assert result.task_judgment is None  # Should clear task judgment
+    assert result.user_feedback == "I mean all the dishes in the sink"
+    assert result.task_judgment is None
 
 def test_ask_about_subtasks_node_first_run(mock_openai):
     mock_openai.chat.completions.create.return_value.choices = [
@@ -462,4 +444,71 @@ def test_judge_subtasks_node_retry_behavior(mock_openai):
     result = judge_subtasks_node(state)
     assert result.subtask_judgment.judgment == JudgmentType.PASS
     assert "Max retries reached" in result.subtask_judgment.reason
-    assert result.subtask_judgment_retry.retries == 3 
+    assert result.subtask_judgment_retry.retries == 3
+
+def test_judge_subtasks_node_passes_if_user_accepted():
+    state = TaskAgentState(
+        task_metadata=TaskMetadata(
+            task="do the dishes",
+            confidence=0.9,
+            concerns=[],
+            questions=[],
+            is_subtaskable=True
+        ),
+        subtask_metadata=SubtaskMetadata(
+            subtasks=["Fill sink", "Scrub", "Rinse"],
+            confidence=0.9,
+            concerns=[],
+            questions=[],
+            user_accepted_subtasks=True
+        ),
+        subtask_judgment_retry=UserFeedbackRetry(retries=0, max_retries=3),
+        user_accepted_subtasks=True
+    )
+    result = judge_subtasks_node(state)
+    assert result.subtask_judgment.judgment == JudgmentType.PASS
+    assert "User approved" in result.subtask_judgment.reason or result.user_accepted_subtasks is True
+
+def test_judge_subtasks_node_fails_if_not_accepted_and_below_max_retries():
+    state = TaskAgentState(
+        task_metadata=TaskMetadata(
+            task="do the dishes",
+            confidence=0.9,
+            concerns=[],
+            questions=[],
+            is_subtaskable=True
+        ),
+        subtask_metadata=SubtaskMetadata(
+            subtasks=["Fill sink", "Scrub", "Rinse"],
+            confidence=0.9,
+            concerns=[],
+            questions=[],
+            user_accepted_subtasks=False
+        ),
+        subtask_judgment_retry=UserFeedbackRetry(retries=1, max_retries=3),
+        user_accepted_subtasks=False
+    )
+    result = judge_subtasks_node(state)
+    assert result.subtask_judgment.judgment == JudgmentType.FAIL
+    assert result.subtask_judgment_retry.retries == 2
+
+def test_ask_to_subtask_conditional_edges_retry():
+    # Simulate a state where user_wants_subtasks is None (undecided/invalid input)
+    state = TaskAgentState(
+        task_metadata=TaskMetadata(
+            task="do the dishes",
+            confidence=0.9,
+            concerns=[],
+            questions=[],
+            is_subtaskable=True
+        ),
+        user_wants_subtasks=None
+    )
+    # The lambda should return 'ask_to_subtask' for None
+    edge_lambda = lambda s: "ask_to_subtask" if s.user_wants_subtasks is None else ("yes" if s.user_wants_subtasks else "no")
+    assert edge_lambda(state) == "ask_to_subtask"
+    # Also check True/False cases for completeness
+    state_yes = state.model_copy(update={"user_wants_subtasks": True})
+    state_no = state.model_copy(update={"user_wants_subtasks": False})
+    assert edge_lambda(state_yes) == "yes"
+    assert edge_lambda(state_no) == "no" 

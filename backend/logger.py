@@ -3,7 +3,6 @@ import os
 from typing import Optional
 
 # Get log level from environment variable, default to INFO
-LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
 LOG_LEVELS = {
     "DEBUG": logging.DEBUG,
     "INFO": logging.INFO,
@@ -12,21 +11,25 @@ LOG_LEVELS = {
     "CRITICAL": logging.CRITICAL
 }
 
-# Create logger
+# Create logger instance but don't configure it yet
 logger = logging.getLogger("task_agent")
-logger.setLevel(LOG_LEVELS.get(LOG_LEVEL, logging.INFO))
 
-# Create console handler if none exists
-if not logger.handlers:
-    console_handler = logging.StreamHandler()
-    console_handler.setLevel(LOG_LEVELS.get(LOG_LEVEL, logging.INFO))
-    
-    # Create formatter
-    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-    console_handler.setFormatter(formatter)
-    
-    # Add handler to logger
-    logger.addHandler(console_handler)
+def initialize_logger() -> None:
+    """Initialize the logger with configuration from environment variables."""
+    log_level = os.getenv("LOG_LEVEL", "INFO").upper()
+    logger.setLevel(LOG_LEVELS.get(log_level, logging.INFO))
+
+    # Create console handler if none exists
+    if not logger.handlers:
+        console_handler = logging.StreamHandler()
+        console_handler.setLevel(LOG_LEVELS.get(log_level, logging.INFO))
+        
+        # Create formatter
+        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        console_handler.setFormatter(formatter)
+        
+        # Add handler to logger
+        logger.addHandler(console_handler)
 
 def set_log_level(level: str) -> None:
     """Set the log level for the task agent logger."""
