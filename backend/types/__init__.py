@@ -4,7 +4,6 @@ from .types import (
     SubtaskMetadata,
     SubtaskJudgment,
     JudgmentType,
-    SubtaskDecision,
     TaskAgentState,
     UserFeedbackRetry
 )
@@ -15,7 +14,6 @@ __all__ = [
     "SubtaskMetadata",
     "SubtaskJudgment",
     "JudgmentType",
-    "SubtaskDecision",
     "TaskAgentState",
     "UserFeedbackRetry"
 ] 

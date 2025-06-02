@@ -5,15 +5,14 @@ from dotenv import load_dotenv
 import json
 from backend.types import TaskMetadata, TaskJudgment, SubtaskMetadata, SubtaskJudgment
 from fastapi import HTTPException
-from backend.logger import initialize_logger
+from backend.logger import initialize_logger, logger
 from backend.prompts.task_prompts import (
     TASK_EXTRACTION_SYSTEM_PROMPT,
     TASK_JUDGMENT_SYSTEM_PROMPT,
     SUBTASK_GENERATION_SYSTEM_PROMPT,
     SUBTASK_JUDGMENT_SYSTEM_PROMPT,
     TASK_CLARIFICATION_SYSTEM_PROMPT,
-    SUBTASK_DECISION_PROMPT,
-    SUBTASK_DECISION_RETRY_PROMPT
+    SUBTASK_DECISION_PROMPT
 )
 
 # Load environment variables from .env file
@@ -21,6 +20,7 @@ load_dotenv()
 
 # Initialize logger after environment variables are loaded
 initialize_logger()
+logger.info("Logger initialized successfully")
 
 # --- Constants ---
 DEFAULT_MODEL = "gpt-4.1"
@@ -131,6 +131,8 @@ def judge_subtasks(metadata: TaskMetadata, subtasks: SubtaskMetadata) -> Subtask
         <questions>
         {chr(10).join(subtasks.questions) if subtasks.questions else 'None'}
         </questions>
+
+        <user_accepted_subtasks>{subtasks.user_accepted_subtasks}</user_accepted_subtasks>
     </user_prompt>
     """
 
@@ -190,31 +192,31 @@ def generate_task_clarification_prompt(metadata, judgment, context_type: str) ->
     Generate a human-friendly prompt for task/subtask clarification.
     Uses concerns and questions from metadata to create a clear message.
     """
-    concerns = metadata.concerns or []
-    questions = metadata.questions or []
+    # concerns = metadata.concerns or []
+    # questions = metadata.questions or []
 
-    lines = []
+    # lines = []
 
-    # Determine the goal of the interaction
-    if not concerns and not questions:
-        if context_type == "subtasks":
-            lines.append("I've broken down your task into the following subtasks:")
-            lines.append("\n" + "\n".join(f"- {subtask}" for subtask in metadata.subtasks))
-            lines.append("\nAre these subtasks acceptable? If not, please let me know what changes you'd like to make.")
-        else:
-            lines.append(f"Here's what I came up with for your {context_type}. Does this look right to you?")
-    else:
-        lines.append(f"I need your help clarifying your {context_type}.")
+    # # Determine the goal of the interaction
+    # if context_type == "subtasks" and metadata.subtasks is not None:
+    #     lines.append("I've broken down your task into the following subtasks:")
+    #     lines.append("\n" + "\n".join(f"- {subtask}" for subtask in metadata.subtasks))
+    #     lines.append("\nAre these subtasks acceptable? If not, please let me know what changes you'd like to make.")
+    # if context_type == "task" and metadata.task is not None:
+    #     lines.append(f"Here's what I came up with for your {context_type}. Does this look right to you?")
+    # if lines == []:
+    #     lines.append(f"I was unable to extract or generate a {context_type} from your message.\n")
 
-        if concerns:
-            lines.append("\nHere are a few concerns I have:")
-            lines.extend(f"- {c}" for c in concerns)
+    # if concerns:
+    #     lines.append("\nHere are a few concerns I have:")
+    #     lines.extend(f"- {c}" for c in concerns)
 
-        if questions:
-            lines.append("\nCould you please clarify:")
-            lines.extend(f"- {q}" for q in questions)
+    # if questions:
+    #     lines.append("\nCould you please clarify:")
+    #     lines.extend(f"- {q}" for q in questions)
 
-    return "\n".join(lines).strip()
+    # return "\n".join(lines).strip()
+    return "Wrong method called"
 
 def retry_task_with_feedback(state) -> TaskMetadata:
     """

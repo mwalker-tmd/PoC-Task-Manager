@@ -5,7 +5,7 @@ from typing import Optional, List
 from langgraph.types import interrupt, Command
 from langgraph.checkpoint.memory import InMemorySaver
 
-from backend.types import TaskMetadata, TaskJudgment, JudgmentType, SubtaskDecision, TaskAgentState, UserFeedbackRetry, SubtaskJudgment
+from backend.types import TaskMetadata, TaskJudgment, JudgmentType, TaskAgentState, UserFeedbackRetry, SubtaskJudgment
 from backend.tools import (
     extract_task,
     judge_task,
@@ -13,9 +13,10 @@ from backend.tools import (
     judge_subtasks,
     create_task,
     retry_task_with_feedback,
-    retry_subtasks_with_feedback,
-    generate_task_clarification_prompt
+    retry_subtasks_with_feedback
 )
+from backend.tools.interaction_messages import generate_task_clarification_prompt
+#from backend.tools.task_tools import generate_task_clarification_prompt
 from backend.logger import logger
 
 def strtobool(val: str) -> bool:
@@ -35,6 +36,15 @@ def strtobool(val: str) -> bool:
 
 # Node definitions
 def extract_task_node(state: TaskAgentState) -> TaskAgentState:
+    """
+    Extract the main task from user input and reset state for a new task.
+    """
+    # Reset state for a new task
+    state.user_wants_subtasks = None
+    state.user_accepted_subtasks = None
+    state.user_feedback = None
+    state.last_user_message = None
+    
     result = extract_task(state)
     state.task_metadata = result
     return state
@@ -67,17 +77,16 @@ def ask_to_subtask_node(state: TaskAgentState) -> TaskAgentState:
     Pause execution and ask the user if they want help breaking the task into subtasks.
     Retries up to 2 times before defaulting to "no".
     """
-    if state.subtask_decision is None:
-        state.subtask_decision = SubtaskDecision(value=None, user_feedback_retry=UserFeedbackRetry())
-
     if state.task_metadata.is_subtaskable is False:
-        state.subtask_decision.value = "no"
+        state.user_wants_subtasks = False
         return state
 
     main_prompt = "Would you like help breaking this task into subtasks? (yes/no)"
-    while state.subtask_decision.value is None and \
-        state.subtask_decision.user_feedback_retry.retries < state.subtask_decision.user_feedback_retry.max_retries:
-        if state.subtask_decision.user_feedback_retry.retries == 0:
+    retries = 0
+    max_retries = 2
+
+    while state.user_wants_subtasks is None and retries < max_retries:
+        if retries == 0:
             logger.debug("ask_to_subtask_node: First Pass")
             prompt_message = main_prompt
         else:
@@ -88,15 +97,12 @@ def ask_to_subtask_node(state: TaskAgentState) -> TaskAgentState:
         logger.debug("ask_to_subtask_node: user_input = %s", user_input)
 
         try:
-            if strtobool(user_input):
-                state.subtask_decision.value = "yes"
-            else:
-                state.subtask_decision.value = "no"
+            state.user_wants_subtasks = strtobool(user_input)
         except ValueError:
             logger.debug("ask_to_subtask_node: Invalid input: %s", user_input)
-            state.subtask_decision.user_feedback_retry.retries += 1
-            if state.subtask_decision.user_feedback_retry.retries >= state.subtask_decision.user_feedback_retry.max_retries:
-                state.subtask_decision.value = "no"
+            retries += 1
+            if retries >= max_retries:
+                state.user_wants_subtasks = False
             continue
         break
     return state
@@ -133,7 +139,7 @@ def judge_subtasks_node(state: TaskAgentState) -> TaskAgentState:
 def create_task_node(state: TaskAgentState) -> TaskAgentState:
     subtasks = state.subtask_metadata.subtasks if state.subtask_metadata else []
     create_task(state.task_metadata.task, subtasks)
-    state.confirmed = True
+    state.task_creation_confirmed = True
     return state
 
 def ask_about_task_node(state: TaskAgentState) -> TaskAgentState:
@@ -170,6 +176,8 @@ def retry_subtasks_node(state: TaskAgentState) -> TaskAgentState:
     Clears user_feedback after processing.
     """
     result = retry_subtasks_with_feedback(state)
+    # Preserve the user_accepted_subtasks field from the result
+    state.user_accepted_subtasks = result.user_accepted_subtasks
     state.subtask_metadata = result
     state.user_feedback = None
     return state
@@ -215,7 +223,7 @@ builder.add_conditional_edges("judge_task", lambda s: s.task_judgment.judgment.v
 builder.add_edge("ask_about_task", "retry_task")
 builder.add_edge("retry_task", "judge_task")
 
-builder.add_conditional_edges("ask_to_subtask", lambda s: s.subtask_decision.value, {
+builder.add_conditional_edges("ask_to_subtask", lambda s: "yes" if s.user_wants_subtasks else "no", {
     "yes": "generate_subtasks",
     "no": "create_task",
     None: "ask_to_subtask"
