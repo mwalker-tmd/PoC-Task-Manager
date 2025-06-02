@@ -114,6 +114,7 @@ The message should:
 - If the {task_type} could not be extracted/generated:
     - Clearly present any remaining concerns or questions that could help you extract/generate the {task_type}
     - politely ask the user to provide a clearer version
+- Otherwise: Ask the user if they would like to modify or confirm the {task_type}
 - Maintain a helpful and professional tone
 
 Your response should be a JSON object with the following structure:
