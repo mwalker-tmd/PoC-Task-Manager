@@ -71,14 +71,20 @@ def extract_task(state) -> TaskMetadata:
 
     try:
         content = _make_llm_call(TASK_EXTRACTION_SYSTEM_PROMPT, user_prompt)
-        return TaskMetadata(**content)
+        result = TaskMetadata(**content)
+        # Set due_date_confirmed if we have a due date or it's marked as open-ended
+        if result.due_date is not None or result.is_open_ended:
+            state.due_date_confirmed = True
+        return result
     except Exception as e:
         return TaskMetadata(
             task=state.input.strip(),
             confidence=0.0,
             concerns=["Unable to parse task extraction response"],
             questions=[],
-            is_subtaskable=False
+            is_subtaskable=False,
+            due_date=None,
+            is_open_ended=False
         )
 
 def judge_task(metadata: TaskMetadata) -> TaskJudgment:

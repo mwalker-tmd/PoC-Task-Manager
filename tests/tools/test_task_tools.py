@@ -400,4 +400,63 @@ def test_retry_task_with_feedback_open_ended(mock_openai):
     assert result.task == "maintain garden"
     assert result.due_date is None
     assert result.is_open_ended is True
-    assert state.due_date_confirmed is True 
+    assert state.due_date_confirmed is True
+
+def test_extract_task_due_date_confirmed(mock_openai):
+    mock_openai.chat.completions.create.return_value.choices = [
+        Mock(message=Mock(content='''{
+            "task": "do the dishes",
+            "confidence": 0.9,
+            "concerns": [],
+            "questions": [],
+            "due_date": "2024-03-20",
+            "is_open_ended": false
+        }'''))
+    ]
+    state = TaskAgentState(input="Do the dishes by March 20th")
+    result = task_tools.extract_task(state)
+    assert state.due_date_confirmed is True
+    assert result.due_date == "2024-03-20"
+
+def test_extract_task_open_ended_confirmed(mock_openai):
+    mock_openai.chat.completions.create.return_value.choices = [
+        Mock(message=Mock(content='''{
+            "task": "maintain garden",
+            "confidence": 0.9,
+            "concerns": [],
+            "questions": [],
+            "due_date": null,
+            "is_open_ended": true
+        }'''))
+    ]
+    state = TaskAgentState(input="Keep maintaining the garden, no deadline needed")
+    result = task_tools.extract_task(state)
+    assert state.due_date_confirmed is True
+    assert result.is_open_ended is True
+
+def test_extract_task_no_due_date_not_confirmed(mock_openai):
+    mock_openai.chat.completions.create.return_value.choices = [
+        Mock(message=Mock(content='''{
+            "task": "do the dishes",
+            "confidence": 0.9,
+            "concerns": [],
+            "questions": [],
+            "due_date": null,
+            "is_open_ended": false
+        }'''))
+    ]
+    state = TaskAgentState(input="Do the dishes")
+    result = task_tools.extract_task(state)
+    assert state.due_date_confirmed is False
+    assert result.due_date is None
+    assert result.is_open_ended is False
+
+def test_extract_task_error_handling_due_date_confirmed(mock_openai):
+    mock_openai.chat.completions.create.return_value.choices = [
+        Mock(message=Mock(content="invalid json"))
+    ]
+    state = TaskAgentState(input="Do the dishes by March 20th")
+    result = task_tools.extract_task(state)
+    assert state.due_date_confirmed is False
+    assert result.due_date is None
+    assert result.is_open_ended is False 
