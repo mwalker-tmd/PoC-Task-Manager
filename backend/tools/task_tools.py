@@ -71,14 +71,20 @@ def extract_task(state) -> TaskMetadata:
 
     try:
         content = _make_llm_call(TASK_EXTRACTION_SYSTEM_PROMPT, user_prompt)
-        return TaskMetadata(**content)
+        result = TaskMetadata(**content)
+        # Set due_date_confirmed if we have a due date or it's marked as open-ended
+        if result.due_date is not None or result.is_open_ended:
+            state.due_date_confirmed = True
+        return result
     except Exception as e:
         return TaskMetadata(
             task=state.input.strip(),
             confidence=0.0,
             concerns=["Unable to parse task extraction response"],
             questions=[],
-            is_subtaskable=False
+            is_subtaskable=False,
+            due_date=None,
+            is_open_ended=False
         )
 
 def judge_task(metadata: TaskMetadata) -> TaskJudgment:
@@ -86,10 +92,20 @@ def judge_task(metadata: TaskMetadata) -> TaskJudgment:
     Determine if the extracted task is clearly defined and actionable.
     Uses task confidence, concerns, and clarification questions as context.
     """
+    logger.debug("judge_task: Starting task judgment")
+    logger.debug("Task to judge: %s", metadata.task)
+    logger.debug("Confidence: %f", metadata.confidence)
+    logger.debug("Concerns: %s", metadata.concerns)
+    logger.debug("Questions: %s", metadata.questions)
+    logger.debug("Due date: %s", metadata.due_date)
+    logger.debug("Is open ended: %s", metadata.is_open_ended)
+
     user_prompt = f"""
     <user_prompt>
         <task>{metadata.task}</task>
         <confidence>{metadata.confidence}</confidence>
+        <due_date>{metadata.due_date if metadata.due_date else 'None'}</due_date>
+        <is_open_ended>{metadata.is_open_ended}</is_open_ended>
 
         <concerns>
         {chr(10).join(metadata.concerns) if metadata.concerns else 'None'}
@@ -103,11 +119,24 @@ def judge_task(metadata: TaskMetadata) -> TaskJudgment:
 
     try:
         content = _make_llm_call(TASK_JUDGMENT_SYSTEM_PROMPT, user_prompt)
-        return TaskJudgment(**content)
-    except Exception:
+        logger.debug("LLM judgment response: %s", content)
+        result = TaskJudgment(**content)
+        logger.debug("Judgment result: %s", result.judgment)
+        logger.debug("Judgment reason: %s", result.reason)
+        logger.debug("Additional questions: %s", result.additional_questions)
+        
+        # Append any additional questions to the metadata
+        if result.additional_questions:
+            metadata.questions.extend(result.additional_questions)
+            logger.debug("Updated questions list: %s", metadata.questions)
+            
+        return result
+    except Exception as e:
+        logger.error("Error in judge_task: %s", str(e))
         return TaskJudgment(
             judgment="fail",
-            reason="Task judgment failed: unable to parse task judgment response."
+            reason="Task judgment failed: unable to parse task judgment response.",
+            additional_questions=[]
         )
 
 def judge_subtasks(metadata: TaskMetadata, subtasks: SubtaskMetadata) -> SubtaskJudgment:
@@ -187,41 +216,14 @@ def create_task(task: str, subtasks: Optional[List[str]] = None) -> dict:
         "subtasks": subtasks
     }
 
-def generate_task_clarification_prompt(metadata, judgment, context_type: str) -> str:
-    """
-    Generate a human-friendly prompt for task/subtask clarification.
-    Uses concerns and questions from metadata to create a clear message.
-    """
-    # concerns = metadata.concerns or []
-    # questions = metadata.questions or []
-
-    # lines = []
-
-    # # Determine the goal of the interaction
-    # if context_type == "subtasks" and metadata.subtasks is not None:
-    #     lines.append("I've broken down your task into the following subtasks:")
-    #     lines.append("\n" + "\n".join(f"- {subtask}" for subtask in metadata.subtasks))
-    #     lines.append("\nAre these subtasks acceptable? If not, please let me know what changes you'd like to make.")
-    # if context_type == "task" and metadata.task is not None:
-    #     lines.append(f"Here's what I came up with for your {context_type}. Does this look right to you?")
-    # if lines == []:
-    #     lines.append(f"I was unable to extract or generate a {context_type} from your message.\n")
-
-    # if concerns:
-    #     lines.append("\nHere are a few concerns I have:")
-    #     lines.extend(f"- {c}" for c in concerns)
-
-    # if questions:
-    #     lines.append("\nCould you please clarify:")
-    #     lines.extend(f"- {q}" for q in questions)
-
-    # return "\n".join(lines).strip()
-    return "Wrong method called"
-
 def retry_task_with_feedback(state) -> TaskMetadata:
     """
     Use LLM to refine the task based on user feedback.
     """
+    logger.debug("retry_task_with_feedback: Starting task refinement")
+    logger.debug("Original task: %s", state.task_metadata.task)
+    logger.debug("User feedback: %s", state.user_feedback)
+
     user_prompt = f"""
     <user_prompt>
         <original_task>{state.task_metadata.task}</original_task>
@@ -230,14 +232,28 @@ def retry_task_with_feedback(state) -> TaskMetadata:
     """
 
     try:
-        content = _make_llm_call(TASK_CLARIFICATION_SYSTEM_PROMPT, user_prompt)
-        return TaskMetadata(**content)
+        content = _make_llm_call(TASK_EXTRACTION_SYSTEM_PROMPT, user_prompt)
+        logger.debug("LLM response: %s", content)
+        result = TaskMetadata(**content)
+        logger.debug("Refined task: %s", result.task)
+        logger.debug("Due date: %s", result.due_date)
+        logger.debug("Is open ended: %s", result.is_open_ended)
+        
+        # Update due_date_confirmed if we have a due date or it's marked as open-ended
+        if result.due_date is not None or result.is_open_ended:
+            state.due_date_confirmed = True
+            
+        return result
     except Exception as e:
+        logger.error("Error in retry_task_with_feedback: %s", str(e))
         return TaskMetadata(
             task=state.task_metadata.task,
             confidence=0.0,
             concerns=["Unable to parse task refinement response"],
-            questions=[]
+            questions=[],
+            is_subtaskable=False,
+            due_date=None,
+            is_open_ended=False
         )
 
 def retry_subtasks_with_feedback(state) -> SubtaskMetadata:

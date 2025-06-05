@@ -242,6 +242,4 @@ builder.add_edge("retry_subtasks", "judge_subtasks")
 builder.add_edge("create_task", END)
 
 # Compile the graph
-#checkpointer = InMemorySaver()
-#graph = builder.compile(checkpointer=checkpointer)
 graph = builder.compile()
