@@ -216,37 +216,6 @@ def create_task(task: str, subtasks: Optional[List[str]] = None) -> dict:
         "subtasks": subtasks
     }
 
-def generate_task_clarification_prompt(metadata, judgment, context_type: str) -> str:
-    """
-    Generate a human-friendly prompt for task/subtask clarification.
-    Uses concerns and questions from metadata to create a clear message.
-    """
-    # concerns = metadata.concerns or []
-    # questions = metadata.questions or []
-
-    # lines = []
-
-    # # Determine the goal of the interaction
-    # if context_type == "subtasks" and metadata.subtasks is not None:
-    #     lines.append("I've broken down your task into the following subtasks:")
-    #     lines.append("\n" + "\n".join(f"- {subtask}" for subtask in metadata.subtasks))
-    #     lines.append("\nAre these subtasks acceptable? If not, please let me know what changes you'd like to make.")
-    # if context_type == "task" and metadata.task is not None:
-    #     lines.append(f"Here's what I came up with for your {context_type}. Does this look right to you?")
-    # if lines == []:
-    #     lines.append(f"I was unable to extract or generate a {context_type} from your message.\n")
-
-    # if concerns:
-    #     lines.append("\nHere are a few concerns I have:")
-    #     lines.extend(f"- {c}" for c in concerns)
-
-    # if questions:
-    #     lines.append("\nCould you please clarify:")
-    #     lines.extend(f"- {q}" for q in questions)
-
-    # return "\n".join(lines).strip()
-    return "Wrong method called"
-
 def retry_task_with_feedback(state) -> TaskMetadata:
     """
     Use LLM to refine the task based on user feedback.

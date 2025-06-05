@@ -76,7 +76,7 @@ SUBTASK_GENERATION_SYSTEM_PROMPT = """
 You are an expert task planning assistant.
 
 Your job is to break down a single task into a set of **clear, unambiguous subtasks**.
-At a minimum, proceed with generating those subtasks which you expect will be required, regardless of any concerns or ambiquity that exists. 
+At a minimum, proceed with generating those subtasks which you expect will be required, regardless of any concerns or ambiguity that exists. 
 If critical context is missing, **ask clarifying questions instead of guessing**.
 
 Instructions:
