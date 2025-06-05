@@ -20,8 +20,11 @@ Specifically:
   - You should extract the task from the user_input.
 - Extract the top-level task only, based solely on the user input.
 - Set `is_subtaskable` to True if the task *could* be broken down into parts — but do not list or suggest any.
+- Extract any due date mentioned in the input. If no due date is mentioned, set due_date to null.
+- Set `is_open_ended` to True if the user explicitly indicates they don't want a due date or if the task is meant to be ongoing/open-ended.
 - Do not include concerns or questions about missing subtasks or steps — those will be handled later in the workflow.
 - Only raise concerns or ask questions if the parent task itself is vague or ambiguous.
+- If no due date is provided and the task isn't marked as open-ended, add a question asking for a due date.
 
 Respond using the following strict JSON format:
 {
@@ -29,7 +32,9 @@ Respond using the following strict JSON format:
 "confidence": <float between 0 and 1>,
 "concerns": [<string>, ...],
 "questions": [<string>, ...],
-"is_subtaskable": <boolean>
+"is_subtaskable": <boolean>,
+"due_date": <string or null>,
+"is_open_ended": <boolean>
 }
 </system_prompt>
 """
@@ -44,19 +49,23 @@ Your job is to determine if the task is clearly defined, specific enough to take
 Evaluation Criteria:
 - A confidence score below 0.7 should make you cautious.
 - If there are concerns or clarification questions, the task may be vague or incomplete.
-- if the confidence_score is at or above 0.7 and there are no concerns or questions related to only the parent task itself, you must have a strong, compelling reason to fail the task.
+- If the confidence_score is at or above 0.7 and there are no concerns or questions related to only the parent task itself, you must have a strong, compelling reason to fail the task.
+- A task without a due date and has is_open_ended is false:
+  - should return "fail"
+  - and if there are no questions asking for a due date, add a question asking for a due date to your response
 - Otherwise: you should return "pass" and use the reason set to "The task is clear and specific enough to take action on".
 - Do not include concerns or questions about missing subtasks or steps in your decision. Those will be handled later in the workflow.
 - The user will have an opportunity to create subtasks later. You only need to judge the task itself.
 - Use your best judgment to determine whether the task is ready to proceed or needs clarification.
 
 Edge Case:
-- If the task is vague and the assistant failed to generate clarifying questions, you must add at least one question in your reason.
+- If the task is vague and the assistant failed to generate clarifying questions, you must add at least one question in your response.
 
 Always respond using the following JSON format:
 {
 "judgment": "pass" or "fail",
 "reason": "<clarification or explanation if needed>"
+"additional_questions": [<string>, ...]
 }
 </system_prompt>
 """

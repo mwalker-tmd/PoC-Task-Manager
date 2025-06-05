@@ -21,10 +21,13 @@ class TaskMetadata(BaseModel):
     concerns: List[str]
     questions: List[str]
     is_subtaskable: bool = False
+    due_date: Optional[str] = None
+    is_open_ended: bool = False
 
 class TaskJudgment(BaseModel):
     judgment: JudgmentType
     reason: str
+    additional_questions: List[str] = []
 
 class SubtaskMetadata(BaseModel):
     """
@@ -69,6 +72,7 @@ class TaskAgentState(BaseModel):
         last_user_message: The last message shown to the user
         user_feedback: The user's most recent feedback
         task_creation_confirmed: Whether the task has been created
+        due_date_confirmed: Whether the due date has been confirmed or marked as open-ended
     """
     input: Optional[str] = None
     task_metadata: Optional[TaskMetadata] = None
@@ -82,3 +86,4 @@ class TaskAgentState(BaseModel):
     last_user_message: Optional[str] = None
     user_feedback: Optional[str] = None
     task_creation_confirmed: bool = False
+    due_date_confirmed: bool = False
